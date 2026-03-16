@@ -53,7 +53,7 @@ namespace HAL
         size_t dma_buf_len = 256;
 
         /// For I2S DMA buffer count
-        size_t dma_buf_count = 8;
+        size_t dma_buf_count = 4;
 
         /// Background task priority
         uint8_t task_priority = 2;

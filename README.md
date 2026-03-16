@@ -295,7 +295,7 @@ idf.py menuconfig
 | `HAL_USE_DISPLAY`  | on      | ST7789 display via LovyanGFX  |
 | `HAL_USE_KEYBOARD` | on      | Keyboard input (requires I2C) |
 | `HAL_USE_RADIO`    | on      | SX1262 LoRa radio             |
-| `HAL_USE_SDCARD`   | on      | SD card (FAT)                 |
+| `HAL_USE_SDCARD`   | on      | SD card (FAT/exFAT)           |
 | `HAL_USE_GPS`      | on      | ATGM336H GPS                  |
 | `HAL_USE_SPEAKER`  | on      | I2S audio output              |
 | `HAL_USE_LED`      | on      | WS2812 RGB LED                |

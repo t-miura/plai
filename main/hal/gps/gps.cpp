@@ -15,7 +15,7 @@
 static const char* TAG = "GPS";
 
 // Background task parameters
-#define GPS_TASK_STACK_SIZE 3072
+#define GPS_TASK_STACK_SIZE 2048
 #define GPS_TASK_PRIORITY 5
 #define GPS_READ_TIMEOUT_MS 100
 
