@@ -3127,6 +3127,8 @@ namespace Mesh
                 float snr_db = (route.snr_back[i] != INT8_MIN) ? (float)route.snr_back[i] / 4.0f : 0.0f;
                 ESP_LOGI(TAG, "  Hop %d: 0x%08lx (SNR: %.1f dB)", i + 1, (unsigned long)route.route_back[i], snr_db);
             }
+            // play trace sound
+            _hal->playNotificationSound(HAL::Hal::NotificationSound::TRACE);
 
             // Find the matching record for this target (PENDING or FAILED/timeout) and update it
             uint32_t target = packet.from;

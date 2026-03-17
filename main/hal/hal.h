@@ -253,8 +253,13 @@ namespace HAL
             TUM_TUM = 4,
             PUM_PAM = 5,
             EIGHT_BIT = 6,
-            KNOCK = 7,
-            GPS = 8,
+            EAGLE = 7,
+            PARROT = 8,
+            DUCK = 9,
+            CHICKEN = 10,
+            KNOCK = 11,
+            GPS = 12,
+            TRACE = 13,
         };
 
         virtual void playLastSound() {}
