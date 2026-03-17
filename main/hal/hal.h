@@ -248,6 +248,7 @@ namespace HAL
         {
             NONE = 0,    // silent
             DEFAULT = 1, // default beep
+            // custom chennel suounds start
             MORSE = 2,
             SEAGULL = 3,
             TUM_TUM = 4,
@@ -257,9 +258,11 @@ namespace HAL
             PARROT = 8,
             DUCK = 9,
             CHICKEN = 10,
-            KNOCK = 11,
-            GPS = 12,
-            TRACE = 13,
+            WOODPECKER = 11,
+            // custom chennel suounds end
+            KNOCK = 12,
+            GPS = 13,
+            TRACE = 14,
         };
 
         virtual void playLastSound() {}
