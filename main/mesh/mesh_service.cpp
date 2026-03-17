@@ -1141,29 +1141,36 @@ namespace Mesh
         time_t drift = (time_t)data.time - sys_now;
         if (drift < 0)
             drift = -drift;
-
-        if (!_hal->isGPSAdjusted() || drift > GPS_SIGNIFICANT_DRIFT_S)
+        // check if gps has fix
+        if (data.has_fix)
         {
-            struct timeval tv = {.tv_sec = (time_t)data.time, .tv_usec = 0};
-            settimeofday(&tv, nullptr);
-            if (!_hal->isGPSAdjusted())
+            if (!_hal->isGPSAdjusted() || drift > GPS_SIGNIFICANT_DRIFT_S)
             {
-                _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
-                _hal->setGPSAdjusted(true);
+                struct timeval tv = {.tv_sec = (time_t)data.time, .tv_usec = 0};
+                settimeofday(&tv, nullptr);
+                if (!_hal->isGPSAdjusted())
+                {
+                    _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
+                    _hal->setGPSAdjusted(true);
+                }
+                // dump new system date abd time dd.MM.yyyy HH:mm:ss
+                struct tm timeinfo;
+                localtime_r(&tv.tv_sec, &timeinfo);
+                ESP_LOGI(TAG,
+                         "System time adjusted from GPS: %lu (drift: %lds) = %02d.%02d.%04d %02d:%02d:%02d",
+                         (unsigned long)data.time,
+                         (long)drift,
+                         timeinfo.tm_mday,
+                         timeinfo.tm_mon + 1,
+                         timeinfo.tm_year + 1900,
+                         timeinfo.tm_hour,
+                         timeinfo.tm_min,
+                         timeinfo.tm_sec);
             }
-            // dump new system date abd time dd.MM.yyyy HH:mm:ss
-            struct tm timeinfo;
-            localtime_r(&tv.tv_sec, &timeinfo);
-            ESP_LOGI(TAG,
-                     "System time adjusted from GPS: %lu (drift: %lds) = %02d.%02d.%04d %02d:%02d:%02d",
-                     (unsigned long)data.time,
-                     (long)drift,
-                     timeinfo.tm_mday,
-                     timeinfo.tm_mon + 1,
-                     timeinfo.tm_year + 1900,
-                     timeinfo.tm_hour,
-                     timeinfo.tm_min,
-                     timeinfo.tm_sec);
+        }
+        else
+        {
+            _hal->setGPSAdjusted(false);
         }
     }
 
@@ -2392,8 +2399,7 @@ namespace Mesh
                         msg.id = decoded_packet.id;
                         msg.from = decoded_packet.from;
                         msg.to = decoded_packet.to;
-                        msg.timestamp =
-                            decoded_packet.rx_time > 0 ? decoded_packet.rx_time : (uint32_t)time(nullptr);
+                        msg.timestamp = decoded_packet.rx_time > 0 ? decoded_packet.rx_time : (uint32_t)time(nullptr);
                         msg.channel = decoded_packet.channel;
                         msg.is_direct = (decoded_packet.to != 0xFFFFFFFF);
                         msg.read = false; // Mark as unread
