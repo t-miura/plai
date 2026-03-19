@@ -21,7 +21,6 @@
 #include <freertos/queue.h>
 #include "hal/hal.h"
 #include "hal/radio/radio_interface.h"
-#include "hal/ble/ble_peripheral.h"
 #include "packet_router.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/config.pb.h"
@@ -105,7 +104,6 @@ namespace Mesh
         char long_name[40]; // Long name
         meshtastic_Config_LoRaConfig lora_config;
         meshtastic_Channel primary_channel;
-        uint32_t ble_pin;                                                // BLE pairing PIN (0 = disabled)
         meshtastic_Config_DeviceConfig_Role role;                        // Device role (affects behavior)
         meshtastic_Config_DeviceConfig_RebroadcastMode rebroadcast_mode; // Rebroadcast mode
 
@@ -287,12 +285,6 @@ namespace Mesh
         size_t getNodeCount() const;
 
         /**
-         * @brief Check if BLE client is connected
-         * @return true if connected
-         */
-        bool isBleConnected() const;
-
-        /**
          * @brief Get current radio frequency in MHz
          * @return Frequency in MHz (0 if not configured)
          */
@@ -364,19 +356,11 @@ namespace Mesh
 
     private:
         HAL::Hal* _hal;
-        // BLE callbacks
-        static void onBleConnect(ble_client_t* client);
-        static void onBleDisconnect(ble_client_t* client);
-        static void onBleToRadio(ble_client_t* client, const uint8_t* data, uint16_t len);
-        static uint16_t onBleFromRadio(ble_client_t* client, uint8_t* data, uint16_t max_len);
-
         // Radio callback
         void onRadioEvent(HAL::RadioEvent event);
         void onPacketReceived(const meshtastic_MeshPacket& packet, int16_t rssi, float snr);
 
         // Protocol handlers
-        void handleToRadio(const meshtastic_ToRadio& toRadio);
-        bool buildFromRadio(meshtastic_FromRadio& fromRadio);
         void handleMeshPacket(const meshtastic_MeshPacket& packet);
         void handleAdminMessage(const meshtastic_MeshPacket& packet);
         void handleNodeInfoPacket(const meshtastic_MeshPacket& packet);

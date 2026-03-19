@@ -690,33 +690,10 @@ namespace UTILS
                             // hal->speaker()->setVolume(std::stoi(item.value));
                             // handled in launcher
                         }
-                        else if (item.key == "usb_host")
-                        {
-                            // handled in launcher
-                            // if (item.value == "true")
-                            // {
-                            //     hal->usb()->init();
-                            // }
-                            // else
-                            // {
-                            //     hal->usb()->deinit();
-                            // }
-                        }
                         else if (item.key == "use_led")
                         {
                             if (item.value == "true")
                             {
-#if HAL_USE_WIFI
-                                // Start WiFi status LED
-                                if (hal->settings()->getBool("wifi", "enabled"))
-                                {
-                                    hal->wifi()->update_status();
-                                }
-                                else
-                                {
-                                    hal->led()->off();
-                                }
-#endif
                             }
                             else
                             {

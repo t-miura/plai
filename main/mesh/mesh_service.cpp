@@ -546,27 +546,6 @@ namespace Mesh
         // Set up radio event callback
         _radio->setEventCallback([this](HAL::RadioEvent event) { onRadioEvent(event); });
 
-        char ble_name[32];
-#if 0
-        // Initialize BLE peripheral
-        snprintf(ble_name, sizeof(ble_name), "Meshtastic_%04X", (uint16_t)(_config.node_id & 0xFFFF));
-        ESP_LOGI(TAG, "Setting BLE device name to: %s (node_id=0x%08lX)", ble_name, (unsigned long)_config.node_id);
-
-        if (ble_peripheral_init(ble_name, _config.ble_pin) != 0)
-        {
-            ESP_LOGE(TAG, "Failed to initialize BLE peripheral");
-            return false;
-        }
-
-        // Update advertising with correct name (in case it started before name was set)
-        ble_peripheral_set_device_name(ble_name);
-
-        // Set BLE callbacks
-        ble_peripheral_set_connect_callback(onBleConnect);
-        ble_peripheral_set_disconnect_callback(onBleDisconnect);
-        ble_peripheral_set_toradio_callback(onBleToRadio);
-        ble_peripheral_set_fromradio_callback(onBleFromRadio);
-#endif
         // Start radio in receive mode
         if (!_radio->startReceive(0))
         {
@@ -576,16 +555,12 @@ namespace Mesh
 
         _state = MeshState::READY;
         _last_nodeinfo_broadcast_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        ESP_LOGD(TAG, "Mesh service started, advertising as '%s'", ble_name);
         return true;
     }
 
     void MeshService::stop()
     {
         ESP_LOGD(TAG, "Stopping mesh service");
-
-        // Stop BLE
-        ble_peripheral_deinit();
 
         // Put radio to sleep
         if (_radio)
@@ -1187,8 +1162,6 @@ namespace Mesh
         return 1; // Just us
     }
 
-    bool MeshService::isBleConnected() const { return ble_peripheral_is_connected(); }
-
     uint32_t MeshService::getNodeInfoBroadcastRemainingMs() const
     {
         if (_config.nodeinfo_broadcast_interval_ms == 0)
@@ -1223,8 +1196,6 @@ namespace Mesh
         // LoRa & channel
         _config.lora_config = config.lora_config;
         _config.primary_channel = config.primary_channel;
-        _config.ble_pin = config.ble_pin;
-
         // Ensure primary channel has valid defaults (matches docs behavior)
         if (_config.primary_channel.settings.psk.size == 0)
         {
@@ -1274,206 +1245,6 @@ namespace Mesh
         }
 
         return true;
-    }
-
-    // Static BLE callbacks
-
-    void MeshService::onBleConnect(ble_client_t* client)
-    {
-        if (_instance)
-        {
-            ESP_LOGD(TAG, "BLE client connected");
-            _instance->_fromradio_state = FromRadioState::IDLE;
-
-            if (_instance->_connection_callback)
-            {
-                _instance->_connection_callback(true);
-            }
-        }
-    }
-
-    void MeshService::onBleDisconnect(ble_client_t* client)
-    {
-        if (_instance)
-        {
-            ESP_LOGD(TAG, "BLE client disconnected");
-            _instance->_fromradio_state = FromRadioState::IDLE;
-
-            if (_instance->_connection_callback)
-            {
-                _instance->_connection_callback(false);
-            }
-        }
-    }
-
-    void MeshService::onBleToRadio(ble_client_t* client, const uint8_t* data, uint16_t len)
-    {
-        if (!_instance || !data || len == 0)
-        {
-            return;
-        }
-
-        ESP_LOGD(TAG, "ToRadio received, %d bytes", len);
-        ESP_LOG_BUFFER_HEX_LEVEL(TAG, data, len, ESP_LOG_DEBUG);
-
-        // Decode ToRadio message
-        meshtastic_ToRadio toRadio = meshtastic_ToRadio_init_default;
-        pb_istream_t stream = pb_istream_from_buffer(data, len);
-        if (!pb_decode(&stream, meshtastic_ToRadio_fields, &toRadio))
-        {
-            ESP_LOGE(TAG, "Failed to decode ToRadio: %s", PB_GET_ERROR(&stream));
-            return;
-        }
-
-        _instance->handleToRadio(toRadio);
-    }
-
-    uint16_t MeshService::onBleFromRadio(ble_client_t* client, uint8_t* data, uint16_t max_len)
-    {
-        if (!_instance || !data || max_len == 0)
-        {
-            return 0;
-        }
-
-        meshtastic_FromRadio fromRadio = meshtastic_FromRadio_init_default;
-        if (!_instance->buildFromRadio(fromRadio))
-        {
-            return 0;
-        }
-
-        // Encode FromRadio message
-        pb_ostream_t stream = pb_ostream_from_buffer(data, max_len);
-        if (!pb_encode(&stream, meshtastic_FromRadio_fields, &fromRadio))
-        {
-            ESP_LOGE(TAG, "Failed to encode FromRadio: %s", PB_GET_ERROR(&stream));
-            return 0;
-        }
-
-        ESP_LOGD(TAG, "FromRadio sending %d bytes", stream.bytes_written);
-        return stream.bytes_written;
-    }
-
-    void MeshService::handleToRadio(const meshtastic_ToRadio& toRadio)
-    {
-        switch (toRadio.which_payload_variant)
-        {
-        case meshtastic_ToRadio_packet_tag:
-            // Client wants to send a mesh packet
-            ESP_LOGD(TAG, "ToRadio: packet to 0x%08lX", (unsigned long)toRadio.packet.to);
-            _router.enqueueTx(toRadio.packet);
-            break;
-
-        case meshtastic_ToRadio_want_config_id_tag:
-            // Client requests config dump
-            ESP_LOGD(TAG, "ToRadio: want_config_id = %lu", (unsigned long)toRadio.want_config_id);
-            _fromradio_config_id = toRadio.want_config_id;
-            _fromradio_state = FromRadioState::SEND_MY_INFO;
-            _fromradio_node_index = 0;
-            _fromradio_channel_index = 0;
-            // Notify client that data is ready
-            ble_peripheral_notify_fromnum();
-            break;
-
-        case meshtastic_ToRadio_disconnect_tag:
-            ESP_LOGD(TAG, "ToRadio: disconnect request");
-            ble_peripheral_disconnect();
-            break;
-
-        default:
-            ESP_LOGW(TAG, "ToRadio: unhandled variant %d", toRadio.which_payload_variant);
-            break;
-        }
-    }
-
-    bool MeshService::buildFromRadio(meshtastic_FromRadio& fromRadio)
-    {
-        fromRadio = meshtastic_FromRadio_init_default;
-        fromRadio.id = _router.generatePacketId();
-
-        switch (_fromradio_state)
-        {
-        case FromRadioState::IDLE:
-            return false;
-
-        case FromRadioState::SEND_MY_INFO:
-        {
-            ESP_LOGD(TAG, "FromRadio: sending my_info");
-            fromRadio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
-            fromRadio.my_info.my_node_num = _config.node_id;
-            // Note: max_channels, has_wifi, and has_bluetooth are not part of MyNodeInfo structure
-
-            _fromradio_state = FromRadioState::SEND_CONFIG;
-            ble_peripheral_notify_fromnum();
-            return true;
-        }
-
-        case FromRadioState::SEND_CONFIG:
-        {
-            ESP_LOGD(TAG, "FromRadio: sending config");
-            fromRadio.which_payload_variant = meshtastic_FromRadio_config_tag;
-
-            // Send LoRa config
-            fromRadio.config.which_payload_variant = meshtastic_Config_lora_tag;
-            fromRadio.config.payload_variant.lora = _config.lora_config;
-
-            _fromradio_state = FromRadioState::SEND_CHANNELS;
-            ble_peripheral_notify_fromnum();
-            return true;
-        }
-
-        case FromRadioState::SEND_CHANNELS:
-        {
-            ESP_LOGD(TAG, "FromRadio: sending channel %d", _fromradio_channel_index);
-            fromRadio.which_payload_variant = meshtastic_FromRadio_channel_tag;
-            fromRadio.channel = _config.primary_channel;
-            fromRadio.channel.index = _fromradio_channel_index;
-
-            _fromradio_channel_index++;
-            if (_fromradio_channel_index >= 1) // Only one channel for now
-            {
-                _fromradio_state = FromRadioState::SEND_NODES;
-            }
-            ble_peripheral_notify_fromnum();
-            return true;
-        }
-
-        case FromRadioState::SEND_NODES:
-        {
-            // Send our own node info
-            ESP_LOGD(TAG, "FromRadio: sending node_info");
-            fromRadio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
-            fromRadio.node_info.num = _config.node_id;
-            fromRadio.node_info.has_user = true;
-            strncpy(fromRadio.node_info.user.short_name, _config.short_name, 4);
-            strncpy(fromRadio.node_info.user.long_name, _config.long_name, 39);
-            fromRadio.node_info.user.hw_model = meshtastic_HardwareModel_PRIVATE_HW;
-
-            // Convert node ID to hex string for id field
-            snprintf(fromRadio.node_info.user.id,
-                     sizeof(fromRadio.node_info.user.id),
-                     "!%08lx",
-                     (unsigned long)_config.node_id);
-
-            _fromradio_node_index++;
-            // TODO: Send other nodes from NodeDB
-            _fromradio_state = FromRadioState::SEND_COMPLETE;
-            ble_peripheral_notify_fromnum();
-            return true;
-        }
-
-        case FromRadioState::SEND_COMPLETE:
-        {
-            ESP_LOGD(TAG, "FromRadio: sending config_complete");
-            fromRadio.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
-            fromRadio.config_complete_id = _fromradio_config_id;
-
-            _fromradio_state = FromRadioState::IDLE;
-            return true;
-        }
-
-        default:
-            return false;
-        }
     }
 
     uint32_t MeshService::_estimateAirtimeMs(size_t payload_len) const
@@ -1610,12 +1381,6 @@ namespace Mesh
                 _recordAirtime(_estimateAirtimeMs(len), false);
 
                 _router.enqueueRx(buffer, len, info.rssi, info.snr);
-
-                // Notify BLE client if connected
-                if (ble_peripheral_is_connected())
-                {
-                    ble_peripheral_notify_fromnum();
-                }
             }
             else
             {
@@ -2036,32 +1801,6 @@ namespace Mesh
             }
         }
 
-// Fallback: try _config.primary_channel if nodedb didn't have it
-#if 0
-        if (!decoded_ok)
-        {
-            uint8_t pk[32] = {};
-            size_t pk_len = 0;
-            bool pk_no_crypto = false;
-            if (expandChannelPsk(_config.primary_channel.settings, pk, pk_len, pk_no_crypto))
-            {
-                uint8_t pk_hash = 0;
-                computeChannelHash(_config, pk, pk_len, pk_hash);
-                if (packet.channel == pk_hash)
-                {
-                    ESP_LOGD(TAG, "Hash 0x%02X matched config primary channel, trying decrypt", packet.channel);
-                    decoded_data = meshtastic_Data_init_default;
-                    if (tryAllNonceVariants(pk, pk_len, pk_no_crypto, decoded_data))
-                    {
-                        matched_channel_index = _config.primary_channel.index;
-                        decoded_ok = true;
-                        ESP_LOGD(TAG, "Decrypted on config primary channel (index %d)",
-                                 _config.primary_channel.index);
-                    }
-                }
-            }
-        }
-#endif
         // Fallback: try default preset keys
         if (!decoded_ok)
         {

@@ -184,57 +184,6 @@ void HalCardputer::_init_sdcard()
 }
 #endif
 
-#if HAL_USE_USB
-void HalCardputer::_init_usb()
-{
-    ESP_LOGI(TAG, "init usb");
-    _usb = new USB(this);
-}
-#endif
-
-#if HAL_USE_WIFI
-void HalCardputer::_init_wifi()
-{
-    ESP_LOGI(TAG, "init wifi");
-    _wifi = new WiFi(_settings);
-    _wifi->set_status_callback(
-        [this](wifi_status_t status)
-        {
-            if (!_settings->getBool("system", "use_led"))
-            {
-                return;
-            }
-#if HAL_USE_LED
-            LED* led = this->led();
-            if (led == nullptr)
-            {
-                return;
-            }
-            switch (status)
-            {
-            case WIFI_STATUS_IDLE:
-                led->off();
-                break;
-            case WIFI_STATUS_DISCONNECTED:
-                led->blink_periodic({127, 0, 0}, 50, 2000);
-                break;
-            case WIFI_STATUS_CONNECTING:
-                led->blink_periodic({127, 0, 0}, 50, 1000);
-                break;
-            case WIFI_STATUS_CONNECTED_WEAK:
-                led->blink_periodic_double({255 / 2, 106 / 2, 0}, 50, 50, 2000);
-                break;
-            case WIFI_STATUS_CONNECTED_GOOD:
-                led->blink_periodic_double({120 / 2, 255 / 2, 32 / 2}, 50, 50, 2000);
-                break;
-            case WIFI_STATUS_CONNECTED_STRONG:
-                led->blink_periodic_double({0, 38 / 2, 255 / 2}, 50, 50, 2000);
-                break;
-            };
-#endif
-        });
-}
-#endif
 
 #if HAL_USE_LED
 void HalCardputer::_init_led()
@@ -271,14 +220,8 @@ void HalCardputer::init()
 #if HAL_USE_SDCARD
     _init_sdcard();
 #endif
-#if HAL_USE_USB
-    _init_usb();
-#endif
 #if HAL_USE_LED
     _init_led();
-#endif
-#if HAL_USE_WIFI
-    _init_wifi();
 #endif
 #if HAL_USE_RADIO
     _init_radio();

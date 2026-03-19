@@ -27,7 +27,6 @@
 #include "assets/wifi5.h"
 #include "assets/wifi6.h"
 #endif
-#include "assets/usb1.h"
 #include "meshtastic/config.pb.h"
 
 using namespace MOONCAKE::APPS;
@@ -154,15 +153,6 @@ void Launcher::_update_system_bar()
 
             _data.hal->canvas_system_bar()->setFont(FONT_12);
         }
-        // USB
-        #if HAL_USE_USB
-        bool usb_connected = _data.hal->usb()->is_connected();
-        if (usb_connected)
-        {
-            _data.hal->canvas_system_bar()->pushImage(x, y, 26, 16, image_data_usb1, THEME_COLOR_ICON_16);
-            x += 26 + PADDING_X;
-        }
-        #endif
         _data.hal->canvas_system_bar()->setFont(FONT_16);
         // Time
         bool show_time = _data.hal->settings()->getBool("system", "show_time");

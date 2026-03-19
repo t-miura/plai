@@ -9,22 +9,15 @@
  *
  */
 #include "launcher.h"
-#include "hal/hal.h"
 #include "mc_conf_internal.h"
 #include "esp_log.h"
 #include "apps/utils/theme/theme_define.h"
 #include "apps/utils/anim/anim_define.h"
 #include "common_define.h"
-#include "apps/utils/flash/flash_tools.h"
 #include "apps/utils/ui/dialog.h"
 #include "apps/utils/screenshot/screenshot_tools.h"
 #include "apps/utils/ui/key_repeat.h"
 #include <sys/time.h>
-#include "esp_partition.h"
-#if HAL_USE_WIFI
-#include "wifi/wifi.h"
-#endif
-#include <format>
 #include <ctime>
 
 static const char* TAG = "APP_LAUNCHER";
@@ -302,22 +295,6 @@ uint32_t _bat_update_time_count = 0;
 
 void Launcher::_update_system_state()
 {
-// USB host
-#if HAL_USE_USB
-    bool usb_host_enabled = _data.hal->usb()->is_initialized();
-    bool new_usb_host_enabled = _data.hal->settings()->getBool("system", "usb_host");
-    if (usb_host_enabled != new_usb_host_enabled)
-    {
-        if (new_usb_host_enabled)
-        {
-            _data.hal->usb()->init();
-        }
-        else
-        {
-            _data.hal->usb()->deinit();
-        }
-    }
-#endif
     // Time display
     {
         static time_t now;

@@ -33,18 +33,6 @@ menu "HAL Configuration"
         bool "Enable SD card"
         default y
 
-    config HAL_USE_USB
-        bool "Enable USB MSC host"
-        default y
-
-    config HAL_USE_WIFI
-        bool "Enable WiFi"
-        default y
-
-    config HAL_USE_BLE
-        bool "Enable Bluetooth Low Energy"
-        default y
-
     config HAL_USE_RADIO
         bool "Enable LoRa radio (SX1262)"
         default y

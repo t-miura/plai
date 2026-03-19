@@ -36,12 +36,6 @@
 #if HAL_USE_SPEAKER
 #include "speaker/speaker.h"
 #endif
-#if HAL_USE_USB
-#include "usb/usb.h"
-#endif
-#if HAL_USE_WIFI
-#include "wifi/wifi.h"
-#endif
 #if HAL_USE_LED
 #include "led/led.h"
 #endif
@@ -98,12 +92,6 @@ namespace HAL
 #if HAL_USE_SDCARD
         SDCard* _sdcard;
 #endif
-#if HAL_USE_USB
-        USB* _usb;
-#endif
-#if HAL_USE_WIFI
-        WiFi* _wifi;
-#endif
 #if HAL_USE_LED
         LED* _led;
 #endif
@@ -141,14 +129,6 @@ namespace HAL
 #if HAL_USE_SDCARD
               ,
               _sdcard(nullptr)
-#endif
-#if HAL_USE_USB
-              ,
-              _usb(nullptr)
-#endif
-#if HAL_USE_WIFI
-              ,
-              _wifi(nullptr)
 #endif
 #if HAL_USE_LED
               ,
@@ -220,12 +200,6 @@ namespace HAL
 #endif
 #if HAL_USE_SDCARD
         inline SDCard* sdcard() { return _sdcard; }
-#endif
-#if HAL_USE_USB
-        inline USB* usb() { return _usb; }
-#endif
-#if HAL_USE_WIFI
-        inline WiFi* wifi() { return _wifi; }
 #endif
 #if HAL_USE_LED
         inline LED* led() { return _led; }

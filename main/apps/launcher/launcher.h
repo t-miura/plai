@@ -60,9 +60,6 @@ namespace MOONCAKE
                 uint32_t system_bar_update_preiod = 1000;
                 uint32_t system_bar_update_count = 0;
                 SystemState_t system_state;
-
-                // USB
-                bool usb_connected = false;
             };
             Data_t _data;
 

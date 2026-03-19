@@ -17,10 +17,6 @@
 #define RGB_LED_GPIO 21
 
 #if HAL_USE_SPEAKER
-extern const uint8_t usb_connected_wav_start[] asm("_binary_usb_connected_wav_start");
-extern const uint8_t usb_connected_wav_end[] asm("_binary_usb_connected_wav_end");
-extern const uint8_t usb_disconnected_wav_start[] asm("_binary_usb_disconnected_wav_start");
-extern const uint8_t usb_disconnected_wav_end[] asm("_binary_usb_disconnected_wav_end");
 extern const uint8_t error_wav_start[] asm("_binary_error_wav_start");
 extern const uint8_t error_wav_end[] asm("_binary_error_wav_end");
 #endif
@@ -50,12 +46,6 @@ namespace HAL
 #endif
 #if HAL_USE_SDCARD
         void _init_sdcard();
-#endif
-#if HAL_USE_USB
-        void _init_usb();
-#endif
-#if HAL_USE_WIFI
-        void _init_wifi();
 #endif
 #if HAL_USE_LED
         void _init_led();
@@ -118,14 +108,6 @@ namespace HAL
             _speaker->tone(616, 60);
         }
 
-        void playDeviceConnectedSound() override
-        {
-            _speaker->playWav(usb_connected_wav_start, usb_connected_wav_end - usb_connected_wav_start);
-        }
-        void playDeviceDisconnectedSound() override
-        {
-            _speaker->playWav(usb_disconnected_wav_start, usb_disconnected_wav_end - usb_disconnected_wav_start);
-        }
 #endif
 #if HAL_USE_BAT
         uint8_t getBatLevel(float voltage) override;

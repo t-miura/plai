@@ -302,9 +302,6 @@ idf.py menuconfig
 | `HAL_USE_BAT`      | on      | Battery voltage monitor       |
 | `HAL_USE_I2C`      | on      | I2C master bus                |
 | `HAL_USE_BUTTON`   | on      | Home button                   |
-| `HAL_USE_USB`      | on      | USB MSC host                  |
-| `HAL_USE_WIFI`     | on      | WiFi                          |
-| `HAL_USE_BLE`      | on      | Bluetooth Low Energy          |
 
 ## Project Structure
 
