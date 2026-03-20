@@ -19,7 +19,7 @@ Most Meshtastic nodes rely on a phone via BLE or WiFi. Plai takes a different ap
 - **Debug tools** — Built-in Packet Monitor (last 50 packets) and Trace Route history (last 50 attempts per node).
 - **Custom alerts** — Individual channel notifications with distinct sounds.
 - **Display sleep** — Screen turns off when idle to save power; wake on keypress or radio activity.
-- **Stats app** — Tabbed system overview: node info, system, radio, node DB, GPS, mesh port distribution.
+- **Stats app** — Tabbed overview: node info (incl. battery), system (heap, storage, uptime, **firmware version**), radio, node DB (**online nodes**, last hour), GPS, mesh port distribution, **running tasks**.
 - **Fully compatible** with Meshtastic network v2.7+
 - **Ping auto-reply**: respond automatically when someone #ping's the channel
 - **New node greetings**: send a welcome broadcast to the channel and/or a Direct Message when a new node appears
@@ -44,6 +44,7 @@ Full node management with up to 1000 nodes persisted on SD card.
 </p>
 
 - Node list with signal strength, hops, battery, role, encryption indicators
+- **Remembers** last **sort order** and **selected node** across reboots
 - 8 sorting modes (name, role, signal, hops, last heard, favorites first, etc.) _hotkey_ for sorting [1..8], [TAB] to select sorting mode
 - Relay node display — see which node relayed each packet _hotkey_ [R] to jump to relay node
 - Favorite marking and quick-jump navigation _hotkey_ [F] to toggle favorite
@@ -68,7 +69,7 @@ Full node management with up to 1000 nodes persisted on SD card.
 - Full keyboard input with Cyrillic layout support
 - File-backed message history on SD card
 - Clear chat _hotkey_ [BACKSPACE] to clear all messages
-- Hold [CTRL] to display message info (timestamp, will be more soon...)
+- Hold [CTRL] to display message info (**timestamps in local time**)
 
 #### Traceroute
 
@@ -80,6 +81,7 @@ Full node management with up to 1000 nodes persisted on SD card.
 </p>
 
 - Traceroute with hop-by-hop detail, round-trip duration, and SNR at each hop
+- **Success sound** when a traceroute completes
 - Last 50 traceroute attempts stored per node
 - Visual route map with color-coded signal quality
 - Press [T] to start new traceroute
@@ -129,7 +131,7 @@ Multi-channel group chat supporting up to 8 channels.
 - Channel creation _hotkey_ [Fn] + [SPACE] to open channel creation dialog
 - Channel editing _hotkey_ [Fn] + [ENTER] to open channel editing dialog
 - Channel chat _hotkey_ [ENTER] to open channel chat
-- Individual notification sounds per channel
+- Individual notification sounds per channel (additional built-in alert tones)
 
 #### New node greetings & #ping auto-reply
 
@@ -173,7 +175,8 @@ Live radio packet feed for debugging and network analysis.
 - Color-coded direction, node badges, and SNR indicators
 - Color-coded packet ID for easy relay identification
 - From/To node name resolution from NodeDB
-- Scrollable packet list with detail drill-down view
+- Scrollable packet list with detail drill-down view (**extra fields**, improved layout)
+- Hold **[CTRL]** in packet list for **additional fields**
 - Last 50 packets in a static ring buffer
 - Select first item for autoscroll
 
@@ -203,13 +206,14 @@ Network and system statistics in a tabbed view — at a glance diagnostics witho
   <img src="pics/stats_mesh.png" width="480" alt="Stats — Mesh info">
 </p>
 
-- **Node** — Node ID, long/short name, role, PKI status
-- **System** — Heap (total/free/min), PSRAM, SD storage, uptime, date/time
+- **Node** — Node ID, long/short name, role, PKI status, **battery** (when available)
+- **System** — Heap (total/free/min), SD storage, uptime, date/time, **firmware version**
 - **Radio** — Frequency, modem preset, waveform (SF/BW/CR), TX power, RX/TX packet counts
-- **Node DB** — Total nodes, favorites, ignored, messages sent/received
+- **Node DB** — Total nodes, **online** (heard within the last hour), favorites, ignored, messages sent/received
 - **GPS** — Fix quality, satellites (used/in view), coordinates, altitude, HDOP
-- **Mesh** — RX/TX totals, port distribution (Text, NodeInfo, Position, etc.) with percentages; CRC errors shown separately
-- Tab navigation — [←][→] switch tabs; [↑][↓] scroll long content (e.g. Mesh tab)
+- **Mesh** — Cumulative RX/TX and **port distribution** (Text, NodeInfo, Position, etc.) with percentages — counts reflect **all** packets seen by the radio stack, not a short rolling window; CRC errors shown separately
+- **Tasks** — FreeRTOS tasks sorted by priority: name, **CPU core** (when enabled in IDF), **priority**, **stack high-water mark** (color hints when stack is tight)
+- Tab navigation — [←][→] switch tabs; [↑][↓] scroll **any** tab with overflow
 - Auto-refresh every 2 seconds
 
 ### Settings
@@ -228,12 +232,13 @@ Node database and chat history are stored on SD card and not affected by firmwar
 
 - System: brightness, volume, timezone
 - LoRa: region, modem preset, TX power, hop limit
-- Security: channel PSK management, invitations (auto-add channels from `#invite` DMs)
+- Security: channel PSK management, invitations (auto-add channels from `#invite` DMs), **derive public key from private key** (X25519)
 - Node info: name, short name, role
 - Position: GPS enable, fixed position, broadcast interval. GPS time sync: callback-based; system clock updated from GPS only when drift exceeds 60 seconds
 - Telemetry: device metrics broadcast
 - Export/Import settings to SD card
 - Clear all nodes
+- UI: **GPS** status icon in the bar only when there is a **position fix**; footer **hints** restored on multi-choice dialogs
 
 ## Hardware
 
@@ -263,6 +268,9 @@ Built from scratch on ESP-IDF — not a fork of the Meshtastic firmware.
 - **Reliability**: ACK/NACK with automatic retries, implicit ACK via rebroadcast
 - **Priority TX queue**: ACK > Routing > Admin > Reliable > Default > Background
 - **Duty cycle**: Channel and air utilization tracking
+- **Channel activity**: Detects traffic on the configured channel; **default frequency slot** follows the primary channel name
+- **TX pacing**: Configurable delay for **reply** traffic to reduce collisions
+- **Roles**: Telemetry broadcasts are **not** sent for `CLIENT_HIDDEN` nodes
 - **Multi-region**: US, EU_433, EU_868, CN, JP, ANZ, KR, TW, RU, IN, and more
 - **Packet encoding**: Nanopb (Protocol Buffers) for full Meshtastic wire compatibility
 
@@ -270,7 +278,7 @@ Built from scratch on ESP-IDF — not a fork of the Meshtastic firmware.
 
 ### Prerequisites
 
-- [ESP-IDF v5.5.x](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/get-started/)
+- [ESP-IDF v5.5.x](https://docs.espressif.com/projects/esp-idf/en/v5.5.3/esp32s3/get-started/) (project tested with **5.5.3**)
 - ESP32-S3 target
 
 ### Build & Flash
