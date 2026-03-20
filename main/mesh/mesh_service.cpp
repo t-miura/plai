@@ -506,9 +506,6 @@ namespace Mesh
 
         ESP_LOGW(TAG, "Short name: %s, Long name: %s", _config.short_name, _config.long_name);
 
-        // Initialize region
-        // initRegion();
-
         // Set default primary channel
         if (_config.primary_channel.settings.psk.size == 0)
         {
@@ -3349,12 +3346,12 @@ namespace Mesh
         loraConfig.tx_power = power;
 
         // Calculate channel number from channel name hash
-        const char* channelName = "LongFast"; // Default channel name
-        if (_config.primary_channel.settings.name[0] != '\0')
+        const char* channelName = _config.primary_channel.settings.name;
+        if (channelName[0] == '\0')
         {
-            channelName = _config.primary_channel.settings.name;
+            channelName = loraConfig.use_preset ? getPresetShortName(loraConfig.modem_preset) : "Custom";
         }
-
+        ESP_LOGI(TAG, "Primary channel name: %s", channelName);
         // Calculate number of channels
         uint32_t numChannels =
             (uint32_t)floor((_my_region->freq_end - _my_region->freq_start) / (_my_region->spacing + (_bw / 1000.0f)));
