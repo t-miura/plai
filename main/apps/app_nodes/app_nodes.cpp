@@ -12,7 +12,7 @@
 #include "apps/utils/theme/theme_define.h"
 #include "apps/utils/ui/dialog.h"
 #include "esp_log.h"
-#include "esp_timer.h"
+#include "common_define.h"
 #include "keyboard/keyboard.h"
 #include "lgfx/v1/misc/enum.hpp"
 #include "mbedtls/base64.h"

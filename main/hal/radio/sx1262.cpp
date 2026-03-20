@@ -10,6 +10,7 @@
  */
 
 #include "sx1262.h"
+#include "common_define.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -611,10 +612,10 @@ namespace HAL
 
     void SX1262::waitBusy(uint32_t timeout_ms)
     {
-        uint32_t start = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t start = millis();
         while (gpio_get_level((gpio_num_t)_pins.busy))
         {
-            if ((xTaskGetTickCount() * portTICK_PERIOD_MS - start) > timeout_ms)
+            if ((millis() - start) > timeout_ms)
             {
                 ESP_LOGW(TAG, "Busy timeout");
                 break;
@@ -1190,7 +1191,7 @@ namespace HAL
             info->rssi = rssi;
             info->snr = snr;
             info->frequency = _config.frequency_hz;
-            info->timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            info->timestamp = millis();
             info->crc_ok = true; // CRC error would trigger different IRQ
         }
 

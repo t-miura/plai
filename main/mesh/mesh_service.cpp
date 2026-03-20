@@ -12,8 +12,8 @@
 #include "mesh_service.h"
 #include "node_db.h"
 #include "mesh_data.h"
+#include "common_define.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 #include <time.h>
 #include <format>
 #include "esp_mac.h"
@@ -40,7 +40,6 @@
 #include <math.h>
 #include <sys/time.h>
 #include "hal/gps/gps.h"
-#include "common_define.h"
 
 static const char* TAG = "MESH";
 
@@ -545,7 +544,7 @@ namespace Mesh
         }
 
         _state = MeshState::READY;
-        _last_nodeinfo_broadcast_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        _last_nodeinfo_broadcast_ms = millis();
         return true;
     }
 
@@ -569,7 +568,7 @@ namespace Mesh
             return;
         }
 
-        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t now = millis();
 
         // Process deferred GPS data (posted from the GPS background task)
         HAL::GpsData gps_snapshot;
@@ -731,7 +730,7 @@ namespace Mesh
 
     void MeshService::setTxDelay()
     {
-        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t now = millis();
         _tx_not_before_ms = now + getTxDelayMsec();
     }
 
@@ -740,7 +739,7 @@ namespace Mesh
         if (_pending_acks.empty())
             return;
 
-        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t now = millis();
 
         for (auto it = _pending_acks.begin(); it != _pending_acks.end();)
         {
@@ -962,7 +961,7 @@ namespace Mesh
             // Track pending ACK for DMs (want_ack messages) with retry data
             if (want_ack)
             {
-                uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                uint32_t now = millis();
                 // Evict oldest if full
                 if (_pending_acks.size() >= MAX_PENDING_ACKS)
                 {
@@ -1092,7 +1091,7 @@ namespace Mesh
         {
             if (want_ack)
             {
-                uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                uint32_t now = millis();
                 if (_pending_acks.size() >= MAX_PENDING_ACKS)
                 {
                     auto oldest = _pending_acks.begin();
@@ -1192,7 +1191,7 @@ namespace Mesh
     {
         if (_config.nodeinfo_broadcast_interval_ms == 0)
             return 0;
-        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+        uint32_t now = (uint32_t)millis();
         uint32_t elapsed = now - _last_nodeinfo_broadcast_ms;
         if (elapsed >= _config.nodeinfo_broadcast_interval_ms)
             return 0;
@@ -1302,7 +1301,7 @@ namespace Mesh
 
     void MeshService::_recordAirtime(uint32_t ms, bool is_tx)
     {
-        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t now = millis();
 
         // Rotate window if needed
         if (_airtime_window_start_ms == 0)
@@ -1332,7 +1331,7 @@ namespace Mesh
     float MeshService::_getChannelUtilization() const
     {
         // Blend current window with previous for smooth 1-hour estimate
-        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t now = millis();
         uint32_t elapsed = (now > _airtime_window_start_ms) ? (now - _airtime_window_start_ms) : 1;
         if (elapsed > AIRTIME_WINDOW_MS)
             elapsed = AIRTIME_WINDOW_MS;
@@ -1352,7 +1351,7 @@ namespace Mesh
 
     float MeshService::_getAirUtilTx() const
     {
-        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t now = millis();
         uint32_t elapsed = (now > _airtime_window_start_ms) ? (now - _airtime_window_start_ms) : 1;
         if (elapsed > AIRTIME_WINDOW_MS)
             elapsed = AIRTIME_WINDOW_MS;
@@ -1375,7 +1374,7 @@ namespace Mesh
         {
             ESP_LOGD(TAG, "Radio TX done");
             // Record TX airtime
-            uint32_t tx_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            uint32_t tx_now = millis();
             if (_last_tx_start_ms > 0 && tx_now > _last_tx_start_ms)
             {
                 _recordAirtime(tx_now - _last_tx_start_ms, true);
@@ -1439,7 +1438,7 @@ namespace Mesh
                 PacketHeader hdr;
                 memcpy(&hdr, buffer, sizeof(hdr));
                 PacketLogEntry le = {};
-                le.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000);
+                le.timestamp_ms = (uint32_t)millis();
                 le.from = hdr.from;
                 le.to = hdr.to;
                 le.id = hdr.id;
@@ -1459,7 +1458,7 @@ namespace Mesh
             else if (len > 0)
             {
                 PacketLogEntry le = {};
-                le.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000);
+                le.timestamp_ms = (uint32_t)millis();
                 le.from = 0;
                 le.to = 0;
                 le.id = 0;
@@ -1840,7 +1839,6 @@ namespace Mesh
                 return pkc_result; // PKI_UNKNOWN_PUBKEY or PKI_FAILED
             }
             // fallback to default preset keys
-#if 0
             uint8_t preset_key[32] = {};
             size_t preset_len = 0;
             if (matchDefaultPresetForHash(packet.channel, preset_key, preset_len))
@@ -1849,12 +1847,12 @@ namespace Mesh
                 decoded_data = meshtastic_Data_init_default;
                 if (tryAllNonceVariants(preset_key, preset_len, false, decoded_data))
                 {
-                    matched_channel_index = 0;// todo primary channel
+                    // save to primary index
+                    matched_channel_index = _config.primary_channel.index;
                     decoded_ok = true;
                     ESP_LOGI(TAG, "Decrypted using default preset key");
                 }
             }
-#endif
         }
 
         if (!decoded_ok)
@@ -1922,7 +1920,7 @@ namespace Mesh
         // Log RX packet
         {
             PacketLogEntry le = {};
-            le.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            le.timestamp_ms = (uint32_t)millis();
             le.from = packet.from;
             le.to = packet.to;
             le.id = packet.id;
@@ -3990,7 +3988,7 @@ namespace Mesh
         }
         // Build DeviceMetrics telemetry
         meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
-        telemetry.time = (uint32_t)(esp_timer_get_time() / 1000000); // seconds since boot
+        telemetry.time = (uint32_t)time(nullptr);
         telemetry.which_variant = meshtastic_Telemetry_device_metrics_tag;
 
         auto& dm = telemetry.variant.device_metrics;
@@ -4000,7 +3998,7 @@ namespace Mesh
         if (_config.telemetry_uptime)
         {
             dm.has_uptime_seconds = true;
-            dm.uptime_seconds = (uint32_t)(esp_timer_get_time() / 1000000);
+            dm.uptime_seconds = (uint32_t)(millis() / 1000);
         }
 
         // Battery info from callback
@@ -4179,11 +4177,8 @@ namespace Mesh
         return _config.lora_config.hop_limit; // Default hop limit
     }
 
-    bool MeshService::sendRouting(uint32_t to,
-                                  uint32_t packet_id,
-                                  uint8_t channel,
-                                  uint8_t hop_limit,
-                                  meshtastic_Routing_Error error_code)
+    bool MeshService::sendRouting(
+        uint32_t to, uint32_t packet_id, uint8_t channel, uint8_t hop_limit, meshtastic_Routing_Error error_code)
     {
         const bool is_ack = (error_code == meshtastic_Routing_Error_NONE);
         if (is_ack)

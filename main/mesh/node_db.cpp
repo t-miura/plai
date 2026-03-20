@@ -11,8 +11,8 @@
 
 #include "node_db.h"
 #include "mesh_data.h"
+#include "common_define.h"
 #include "esp_log.h"
-#include "freertos/task.h"
 #include <pb_encode.h>
 #include <pb_decode.h>
 #include <sys/stat.h>
@@ -24,8 +24,6 @@
 #include <format>
 
 static const char* TAG = "NODE_DB";
-
-static inline uint32_t millis() { return xTaskGetTickCount() * portTICK_PERIOD_MS; }
 
 namespace Mesh
 {

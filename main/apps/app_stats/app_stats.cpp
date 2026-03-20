@@ -9,6 +9,7 @@
  *
  */
 #include "app_stats.h"
+#include "common_define.h"
 // #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
@@ -278,7 +279,7 @@ void AppStats::_render_system_info()
         }
     }
 
-    uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    uint32_t uptime_ms = (uint32_t)millis();
     _add_row("Uptime", _format_uptime(uptime_ms).c_str(), TFT_CYAN);
 
     time_t now_t = time(nullptr);

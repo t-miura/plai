@@ -10,13 +10,12 @@
  */
 
 #include "packet_router.h"
+#include "common_define.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include <string.h>
 
 static const char* TAG = "PACKET_ROUTER";
-
-static inline uint32_t millis() { return xTaskGetTickCount() * portTICK_PERIOD_MS; }
 
 namespace Mesh
 {

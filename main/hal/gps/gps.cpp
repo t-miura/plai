@@ -6,6 +6,7 @@
  * running on a background FreeRTOS task.
  */
 #include "gps.h"
+#include "common_define.h"
 #include "driver/uart.h"
 #include "esp_log.h"
 #include <cstdlib>
@@ -138,7 +139,7 @@ namespace HAL
         {
             return UINT32_MAX;
         }
-        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t now = millis();
         return now - _data.last_fix_ms;
     }
 
@@ -408,7 +409,7 @@ namespace HAL
             _data.longitude = lon;
             _data.latitude_i = (int32_t)(lat * 1e7);
             _data.longitude_i = (int32_t)(lon * 1e7);
-            _data.last_fix_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            _data.last_fix_ms = millis();
         }
     }
 
@@ -513,7 +514,7 @@ namespace HAL
             _data.latitude_i = (int32_t)(lat * 1e7);
             _data.longitude_i = (int32_t)(lon * 1e7);
             _data.has_fix = true;
-            _data.last_fix_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            _data.last_fix_ms = millis();
         }
         else if (!active)
         {

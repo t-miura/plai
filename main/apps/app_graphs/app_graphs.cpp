@@ -9,8 +9,8 @@
  *
  */
 #include "app_graphs.h"
+#include "common_define.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 
 static const char* TAG = "APP_GRAPHS";
 
@@ -41,7 +41,7 @@ void AppGraphs::onResume()
 
 void AppGraphs::onRunning()
 {
-    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    uint32_t now = (uint32_t)millis();
 
     switch (_data.current_graph)
     {

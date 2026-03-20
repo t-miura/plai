@@ -10,8 +10,8 @@
  */
 
 #include "mesh_data.h"
+#include "common_define.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 #include <algorithm>
 #include <map>
 #include <sys/stat.h>
@@ -1232,7 +1232,7 @@ namespace Mesh
     void MeshDataStore::addBatteryPoint(float voltage)
     {
         GraphPoint point;
-        point.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        point.timestamp_ms = (uint32_t)millis();
         point.value = voltage;
         _battery_history.push_back(point);
 
@@ -1245,7 +1245,7 @@ namespace Mesh
     void MeshDataStore::addChannelActivityPoint(float packets_per_min)
     {
         GraphPoint point;
-        point.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        point.timestamp_ms = (uint32_t)millis();
         point.value = packets_per_min;
         _channel_activity.push_back(point);
 
@@ -1258,7 +1258,7 @@ namespace Mesh
     void MeshDataStore::addRssiPoint(uint32_t node_id, int16_t rssi)
     {
         GraphPoint point;
-        point.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        point.timestamp_ms = (uint32_t)millis();
         point.value = (float)rssi;
 
         auto& history = _rssi_history[node_id];

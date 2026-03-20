@@ -9,9 +9,9 @@
  *
  */
 #include "app_monitor.h"
+#include "common_define.h"
 #include "apps/utils/theme/theme_define.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 #include "meshtastic/portnums.pb.h"
 #include "mesh/node_db.h"
 #include "mesh/mesh_service.h"
@@ -662,7 +662,7 @@ void AppMonitor::_handle_list_input()
 
     if (_data.hal->keyboard()->isPressed())
     {
-        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+        uint32_t now = (uint32_t)millis();
 
         if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_ESC) || _data.hal->keyboard()->isKeyPressing(KEY_NUM_BACKSPACE) ||
             _data.hal->home_button()->is_pressed())
@@ -746,7 +746,7 @@ void AppMonitor::_handle_detail_input()
 
     if (_data.hal->keyboard()->isPressed())
     {
-        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+        uint32_t now = (uint32_t)millis();
 
         if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_ESC) || _data.hal->keyboard()->isKeyPressing(KEY_NUM_BACKSPACE))
         {
