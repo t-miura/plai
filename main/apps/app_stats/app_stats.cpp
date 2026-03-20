@@ -596,7 +596,7 @@ void AppStats::_render_tasks_info()
     {
 #ifdef CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID
         int core = tasks[i].xCoreID;
-        const char* core_str = core == 0 ? "C0" : core == 1 ? "C1" : "?";
+        const char* core_str = core == 0 ? "#0" : core == 1 ? "#1" : "";
 #else
         const char* core_str = "";
 #endif

@@ -93,18 +93,19 @@ namespace Mesh
                                          RDEF(UNSET, 902.0f, 928.0f, 100, 0, 30, true, false, false)};
 
     // Modem preset lookup table (indexed by meshtastic_Config_LoRaConfig_ModemPreset enum 0..9)
-    //                                                preset enum                                                       name            short    bw      bw_wide    cr  sf
+    //                                                preset enum                                                       name
+    //                                                short    bw      bw_wide    cr  sf
     const ModemPresetInfo modem_presets[MODEM_PRESET_COUNT] = {
-        {meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST,       "LongFast",      "LongF",  250.0f,   812.5f,    5, 11},
-        {meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW,       "LongSlow",      "LongS",  125.0f,   406.25f,   8, 12},
-        {meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW,  "VeryLongSlow",  "VLongS",  62.5f,   203.125f,  8, 12},
-        {meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_SLOW,     "MediumSlow",    "MedS",   250.0f,   812.5f,    5, 10},
-        {meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST,     "MediumFast",    "MedF",   250.0f,   812.5f,    5,  9},
-        {meshtastic_Config_LoRaConfig_ModemPreset_SHORT_SLOW,      "ShortSlow",     "ShrtS",  250.0f,   812.5f,    5,  8},
-        {meshtastic_Config_LoRaConfig_ModemPreset_SHORT_FAST,      "ShortFast",     "ShrtF",  250.0f,   812.5f,    5,  7},
-        {meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE,   "LongMod",       "LongM",  125.0f,   406.25f,   8, 11},
-        {meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO,     "ShortTurbo",    "ShrtT",  500.0f,  1625.0f,    5,  7},
-        {meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO,      "LongTurbo",     "LongT",  500.0f,  1625.0f,    8, 11},
+        {meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, "LongFast", "LongF", 250.0f, 812.5f, 5, 11},
+        {meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW, "LongSlow", "LongS", 125.0f, 406.25f, 8, 12},
+        {meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW, "VeryLongSlow", "VLongS", 62.5f, 203.125f, 8, 12},
+        {meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_SLOW, "MediumSlow", "MedS", 250.0f, 812.5f, 5, 10},
+        {meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST, "MediumFast", "MedF", 250.0f, 812.5f, 5, 9},
+        {meshtastic_Config_LoRaConfig_ModemPreset_SHORT_SLOW, "ShortSlow", "ShrtS", 250.0f, 812.5f, 5, 8},
+        {meshtastic_Config_LoRaConfig_ModemPreset_SHORT_FAST, "ShortFast", "ShrtF", 250.0f, 812.5f, 5, 7},
+        {meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE, "LongMod", "LongM", 125.0f, 406.25f, 8, 11},
+        {meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO, "ShortTurbo", "ShrtT", 500.0f, 1625.0f, 5, 7},
+        {meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO, "LongTurbo", "LongT", 500.0f, 1625.0f, 8, 11},
     };
 
     // Hash function for channel name (djb2)
@@ -314,10 +315,7 @@ namespace Mesh
             return code;
         }
 
-        const char* getPresetDisplayName(meshtastic_Config_LoRaConfig_ModemPreset preset)
-        {
-            return getPresetName(preset);
-        }
+        const char* getPresetDisplayName(meshtastic_Config_LoRaConfig_ModemPreset preset) { return getPresetName(preset); }
 
         const char* getChannelNameForHash(const Mesh::MeshConfig& config)
         {
@@ -711,7 +709,7 @@ namespace Mesh
         // Meshtastic-compatible slot time: time to detect a transmission has started
         // = CAD duration + propagation + Tx/Rx turnaround + MAC processing
         float prop_turnaround_mac_ms = 0.2f + 0.4f + 7.0f; // 7.6 ms
-        float symbol_time_ms = (float)(1u << _sf) / _bw;    // 2^sf / bw_kHz
+        float symbol_time_ms = (float)(1u << _sf) / _bw;   // 2^sf / bw_kHz
 
         if (_my_region && _my_region->wide_lora)
         {
@@ -1689,7 +1687,6 @@ namespace Mesh
                 mbedtls_aes_free(&ctx);
                 return false;
             }
-
             size_t nc_off = 0;
             uint8_t stream_block[16] = {};
             if (mbedtls_aes_crypt_ctr(&ctx,
@@ -1734,6 +1731,7 @@ namespace Mesh
 #if MESH_HAS_MBEDTLS
                 if (k_len == 0)
                 {
+                    ESP_LOGI(TAG, "Fallback: channel has no PSK but remote uses the default key");
                     uint8_t fb[16];
                     memcpy(fb, kDefaultPsk, sizeof(kDefaultPsk));
                     writeU64Le(nonce_counter, (uint64_t)packet.id);
@@ -1813,7 +1811,7 @@ namespace Mesh
                 if (packet.channel != ch_hash)
                     continue;
 
-                ESP_LOGD(TAG,
+                ESP_LOGI(TAG,
                          "Hash 0x%02X matched channel '%s' (index %d, role %d), trying decrypt",
                          packet.channel,
                          ch->settings.name,
@@ -1825,11 +1823,11 @@ namespace Mesh
                 {
                     matched_channel_index = ch->index;
                     decoded_ok = true;
-                    ESP_LOGD(TAG, "Decrypted on channel '%s' (index %d)", ch->settings.name, ch->index);
+                    ESP_LOGI(TAG, "Decrypted on channel '%s' (index %d)", ch->settings.name, ch->index);
                     break;
                 }
 
-                ESP_LOGD(TAG, "Decrypt failed on channel '%s' (index %d), continuing", ch->settings.name, ch->index);
+                ESP_LOGI(TAG, "Decrypt failed on channel '%s' (index %d), continuing", ch->settings.name, ch->index);
             }
         }
 
@@ -1842,20 +1840,22 @@ namespace Mesh
                 ESP_LOGW(TAG, "PKC packet (ch=0) for 0x%08lX failed decryption", (unsigned long)packet.to);
                 return pkc_result; // PKI_UNKNOWN_PUBKEY or PKI_FAILED
             }
-
+            // fallback to default preset keys
+#if 0
             uint8_t preset_key[32] = {};
             size_t preset_len = 0;
             if (matchDefaultPresetForHash(packet.channel, preset_key, preset_len))
             {
-                ESP_LOGD(TAG, "Hash 0x%02X matched default preset key, trying decrypt", packet.channel);
+                ESP_LOGI(TAG, "Hash 0x%02X matched default preset key, trying decrypt", packet.channel);
                 decoded_data = meshtastic_Data_init_default;
                 if (tryAllNonceVariants(preset_key, preset_len, false, decoded_data))
                 {
                     matched_channel_index = 0;
                     decoded_ok = true;
-                    ESP_LOGD(TAG, "Decrypted using default preset key");
+                    ESP_LOGI(TAG, "Decrypted using default preset key");
                 }
             }
+#endif
         }
 
         if (!decoded_ok)
@@ -2186,7 +2186,11 @@ namespace Mesh
                     if (decoded_packet.want_ack && decoded_packet.to != 0xFFFFFFFF)
                     {
                         uint8_t ack_hop_limit = getHopLimitForResponse(decoded_packet.hop_start, decoded_packet.hop_limit);
-                        sendAck(decoded_packet.from, decoded_packet.id, decoded_packet.channel, ack_hop_limit, getReplyNotBefore());
+                        sendAck(decoded_packet.from,
+                                decoded_packet.id,
+                                decoded_packet.channel,
+                                ack_hop_limit,
+                                getReplyNotBefore());
                     }
 
                     // Process #invite DM: create a channel from invitation
@@ -2871,7 +2875,11 @@ namespace Mesh
             memcpy(radio_buf + sizeof(header), payload, payload_len);
             const size_t radio_len = sizeof(header) + payload_len;
 
-            if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, PacketPriority::DEFAULT, meshtastic_PortNum_TRACEROUTE_APP, getReplyNotBefore()))
+            if (_router.enqueueTxRaw(radio_buf,
+                                     (uint8_t)radio_len,
+                                     PacketPriority::DEFAULT,
+                                     meshtastic_PortNum_TRACEROUTE_APP,
+                                     getReplyNotBefore()))
             {
                 ESP_LOGI(TAG, "TraceRoute response sent to 0x%08lX", (unsigned long)packet.from);
             }
@@ -4180,9 +4188,12 @@ namespace Mesh
         return _config.lora_config.hop_limit; // Default hop limit
     }
 
-    bool MeshService::sendRouting(
-        uint32_t to, uint32_t packet_id, uint8_t channel, uint8_t hop_limit, meshtastic_Routing_Error error_code,
-        uint32_t not_before_ms)
+    bool MeshService::sendRouting(uint32_t to,
+                                  uint32_t packet_id,
+                                  uint8_t channel,
+                                  uint8_t hop_limit,
+                                  meshtastic_Routing_Error error_code,
+                                  uint32_t not_before_ms)
     {
         const bool is_ack = (error_code == meshtastic_Routing_Error_NONE);
         if (is_ack)
@@ -4302,7 +4313,11 @@ namespace Mesh
         size_t radio_len = sizeof(header) + encrypted_len;
 
         // Send with high priority (routing replies are time-sensitive)
-        if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, PacketPriority::ACK, meshtastic_PortNum_ROUTING_APP, not_before_ms))
+        if (_router.enqueueTxRaw(radio_buf,
+                                 (uint8_t)radio_len,
+                                 PacketPriority::ACK,
+                                 meshtastic_PortNum_ROUTING_APP,
+                                 not_before_ms))
         {
             ESP_LOGI(TAG, "Routing reply sent to 0x%08lX (error=%d)", (unsigned long)to, (int)error_code);
             return true;
