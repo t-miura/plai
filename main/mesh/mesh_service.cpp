@@ -444,7 +444,7 @@ namespace Mesh
           _fromradio_channel_index(0), _last_nodeinfo_broadcast_ms(0), _force_nodeinfo_broadcast(false),
           _last_position_broadcast_ms(0), _last_telemetry_broadcast_ms(0), _tx_in_progress(false), _last_tx_start_ms(0),
           _last_rx_rssi(0), _last_rx_snr(0.0f), _airtime_window_start_ms(0), _airtime_tx_ms(0), _airtime_rx_ms(0),
-          _airtime_tx_ms_prev(0), _airtime_rx_ms_prev(0), _slot_time_ms(28), _tx_not_before_ms(0)
+          _airtime_tx_ms_prev(0), _airtime_rx_ms_prev(0), _slot_time_ms(28), _tx_not_before_ms(0), _cad_in_progress(false)
     {
         _hal = hal;
         memset(&_config, 0, sizeof(_config));
@@ -568,8 +568,6 @@ namespace Mesh
             return;
         }
 
-        uint32_t now = millis();
-
         // Process deferred GPS data (posted from the GPS background task)
         HAL::GpsData gps_snapshot;
         if (_gps_queue && xQueueReceive(_gps_queue, &gps_snapshot, 0) == pdTRUE)
@@ -587,6 +585,7 @@ namespace Mesh
         _router.processRxQueue();
 
         // Recover if TX_DONE never arrives
+        uint32_t now = millis();
         if (_tx_in_progress && _radio)
         {
             if (_radio->getMode() != HAL::RadioMode::TX)
@@ -595,60 +594,24 @@ namespace Mesh
             }
             else if (now - _last_tx_start_ms > TX_WATCHDOG_TIMEOUT_MS)
             {
-                ESP_LOGW(TAG, "TX watchdog fired, forcing RX restart");
+                ESP_LOGW(TAG, "TX watchdog fired, forcing RX restart (%lu - %lu)", now, _last_tx_start_ms);
                 _tx_in_progress = false;
                 _radio->startReceive(0);
             }
         }
 
-        // Ensure radio stays in RX mode when idle
-        if (_radio && !_radio->isBusy() && _radio->getMode() != HAL::RadioMode::RX)
+        // Ensure radio stays in RX mode when idle (skip during CAD scan)
+        if (_radio && !_radio->isBusy() && !_cad_in_progress && _radio->getMode() != HAL::RadioMode::RX &&
+            _radio->getMode() != HAL::RadioMode::CAD)
         {
             ESP_LOGW(TAG, "Radio not in RX mode, restarting receive");
             _radio->startReceive(0);
         }
 
-        // Check TX queue and send if radio is idle and CSMA/CA delay has elapsed
-        if (_router.hasTxPackets() && _radio && !_radio->isBusy() && now >= _tx_not_before_ms)
+        // Check TX queue: when CSMA/CA delay has elapsed, start CAD before transmitting
+        if (_router.hasTxPackets() && _radio && !_radio->isBusy() && !_cad_in_progress && now >= _tx_not_before_ms)
         {
-            QueuedPacket qp;
-            if (_router.dequeueTx(qp))
-            {
-                ESP_LOGD(TAG, "Transmitting packet, %d bytes", qp.raw_len);
-                if (_radio->transmit(qp.raw_data, qp.raw_len))
-                {
-                    _tx_in_progress = true;
-                    _last_tx_start_ms = now;
-#if HAL_USE_LED
-                    if (_hal->led())
-                        _hal->led()->blink_once({0, 255, 0}, 50);
-#endif
-                    // Log TX packet
-                    if (qp.raw_len >= sizeof(PacketHeader))
-                    {
-                        PacketHeader hdr;
-                        memcpy(&hdr, qp.raw_data, sizeof(hdr));
-                        PacketLogEntry le = {};
-                        le.timestamp_ms = now;
-                        le.from = hdr.from;
-                        le.to = hdr.to;
-                        le.id = hdr.id;
-                        le.size = qp.raw_len;
-                        le.channel = hdr.channel;
-                        le.hop_limit = hdr.flags & PACKET_FLAGS_HOP_LIMIT_MASK;
-                        le.hop_start = (hdr.flags & PACKET_FLAGS_HOP_START_MASK) >> PACKET_FLAGS_HOP_START_SHIFT;
-                        le.want_ack = (hdr.flags & PACKET_FLAGS_WANT_ACK_MASK) != 0;
-                        le.is_tx = true;
-                        le.port = qp.port_hint;
-                        le.decoded = (le.port != 0);
-                        MeshDataStore::getInstance().addPacketLogEntry(le);
-                    }
-                }
-                else
-                {
-                    ESP_LOGW(TAG, "Radio TX start failed");
-                }
-            }
+            startTxCAD();
         }
 
         // Periodic node info broadcast (every 60 seconds), or forced immediately
@@ -732,6 +695,20 @@ namespace Mesh
     {
         uint32_t now = millis();
         _tx_not_before_ms = now + getTxDelayMsec();
+    }
+
+    void MeshService::startTxCAD()
+    {
+        if (_radio && _radio->startCAD())
+        {
+            _cad_in_progress = true;
+            ESP_LOGD(TAG, "CAD started before TX");
+        }
+        else
+        {
+            ESP_LOGW(TAG, "CAD start failed, resetting TX delay");
+            setTxDelay();
+        }
     }
 
     void MeshService::checkPendingAcks()
@@ -1477,22 +1454,74 @@ namespace Mesh
         }
 
         case HAL::RadioEvent::CAD_DONE:
-            ESP_LOGD(TAG, "Radio CAD done, channel free");
+        {
+            _cad_in_progress = false;
+            ESP_LOGD(TAG, "CAD clear, transmitting");
+            uint32_t tx_now = millis();
+            QueuedPacket qp;
+            if (_router.dequeueTx(qp))
+            {
+                ESP_LOGD(TAG, "Transmitting packet, %d bytes", qp.raw_len);
+                if (_radio->transmit(qp.raw_data, qp.raw_len))
+                {
+                    _tx_in_progress = true;
+                    _last_tx_start_ms = tx_now;
+#if HAL_USE_LED
+                    if (_hal->led())
+                        _hal->led()->blink_once({0, 255, 0}, 50);
+#endif
+                    if (qp.raw_len >= sizeof(PacketHeader))
+                    {
+                        PacketHeader hdr;
+                        memcpy(&hdr, qp.raw_data, sizeof(hdr));
+                        PacketLogEntry le = {};
+                        le.timestamp_ms = tx_now;
+                        le.from = hdr.from;
+                        le.to = hdr.to;
+                        le.id = hdr.id;
+                        le.size = qp.raw_len;
+                        le.channel = hdr.channel;
+                        le.hop_limit = hdr.flags & PACKET_FLAGS_HOP_LIMIT_MASK;
+                        le.hop_start = (hdr.flags & PACKET_FLAGS_HOP_START_MASK) >> PACKET_FLAGS_HOP_START_SHIFT;
+                        le.want_ack = (hdr.flags & PACKET_FLAGS_WANT_ACK_MASK) != 0;
+                        le.is_tx = true;
+                        le.port = qp.port_hint;
+                        le.decoded = (le.port != 0);
+                        MeshDataStore::getInstance().addPacketLogEntry(le);
+                    }
+                }
+                else
+                {
+                    ESP_LOGW(TAG, "Radio TX start failed after CAD");
+                    _radio->startReceive(0);
+                }
+            }
+            else
+            {
+                ESP_LOGW(TAG, "No packet to transmit after CAD");
+                _radio->startReceive(0);
+            }
             break;
+        }
 
         case HAL::RadioEvent::CAD_DETECTED:
-            ESP_LOGD(TAG, "Radio CAD detected activity");
+            _cad_in_progress = false;
+            ESP_LOGD(TAG, "CAD detected activity, backing off");
+            setTxDelay();
+            _radio->startReceive(0);
             break;
 
         case HAL::RadioEvent::TX_TIMEOUT:
             ESP_LOGW(TAG, "Radio TX timeout");
             _tx_in_progress = false;
+            _cad_in_progress = false;
             _radio->startReceive(0);
             break;
 
         case HAL::RadioEvent::ERROR:
             ESP_LOGE(TAG, "Radio error");
             _tx_in_progress = false;
+            _cad_in_progress = false;
             _radio->startReceive(0);
             break;
         }
@@ -1809,7 +1838,7 @@ namespace Mesh
                 if (packet.channel != ch_hash)
                     continue;
 
-                ESP_LOGI(TAG,
+                ESP_LOGD(TAG,
                          "Hash 0x%02X matched channel '%s' (index %d, role %d), trying decrypt",
                          packet.channel,
                          ch->settings.name,
@@ -1821,7 +1850,7 @@ namespace Mesh
                 {
                     matched_channel_index = ch->index;
                     decoded_ok = true;
-                    ESP_LOGI(TAG, "Decrypted on channel '%s' (index %d)", ch->settings.name, ch->index);
+                    ESP_LOGD(TAG, "Decrypted on channel '%s' (index %d)", ch->settings.name, ch->index);
                     break;
                 }
 
@@ -1843,14 +1872,14 @@ namespace Mesh
             size_t preset_len = 0;
             if (matchDefaultPresetForHash(packet.channel, preset_key, preset_len))
             {
-                ESP_LOGI(TAG, "Hash 0x%02X matched default preset key, trying decrypt", packet.channel);
+                ESP_LOGD(TAG, "Hash 0x%02X matched default preset key, trying decrypt", packet.channel);
                 decoded_data = meshtastic_Data_init_default;
                 if (tryAllNonceVariants(preset_key, preset_len, false, decoded_data))
                 {
                     // save to primary index
                     matched_channel_index = _config.primary_channel.index;
                     decoded_ok = true;
-                    ESP_LOGI(TAG, "Decrypted using default preset key");
+                    ESP_LOGD(TAG, "Decrypted using default preset key");
                 }
             }
         }

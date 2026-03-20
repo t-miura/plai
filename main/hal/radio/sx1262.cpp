@@ -686,7 +686,7 @@ namespace HAL
             cmd_str = "TxDone";
             break;
         }
-        ESP_LOGI(TAG, "Status: 0x%02X (mode=%s, cmd=%s)", status, mode_str, cmd_str);
+        ESP_LOGD(TAG, "Status: 0x%02X (mode=%s, cmd=%s)", status, mode_str, cmd_str);
         return status;
     }
 
@@ -1202,7 +1202,7 @@ namespace HAL
 
     bool SX1262::startCAD()
     {
-        ESP_LOGI(TAG, "Starting CAD");
+        ESP_LOGD(TAG, "Starting CAD");
 
         setStandby(true);
         waitBusy();
@@ -1302,7 +1302,7 @@ namespace HAL
         {
             if (_state == SX1262State::RX)
             {
-                ESP_LOGI(TAG, "RX timeout");
+                ESP_LOGD(TAG, "RX timeout");
                 event = RadioEvent::RX_TIMEOUT;
             }
             else if (_state == SX1262State::TX)
@@ -1318,12 +1318,12 @@ namespace HAL
         {
             if (irq & SX1262_IRQ_CAD_DETECTED)
             {
-                ESP_LOGI(TAG, "CAD detected activity");
+                ESP_LOGD(TAG, "CAD detected activity");
                 event = RadioEvent::CAD_DETECTED;
             }
             else
             {
-                ESP_LOGI(TAG, "CAD done, channel free");
+                ESP_LOGD(TAG, "CAD done, channel free");
                 event = RadioEvent::CAD_DONE;
             }
             has_event = true;

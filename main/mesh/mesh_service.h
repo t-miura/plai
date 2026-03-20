@@ -519,14 +519,16 @@ namespace Mesh
         static constexpr uint32_t ACK_TIMEOUT_MS = 30000; // 30 seconds
         static constexpr size_t MAX_PENDING_ACKS = 16;
 
-        // Meshtastic-compatible CSMA/CA TX delay (set after each RF event)
+        // Meshtastic-compatible CSMA/CA TX delay with CAD (set after each RF event)
         static constexpr uint8_t CW_MIN = 3;
         static constexpr uint8_t CW_MAX = 8;
         uint32_t _slot_time_ms;
         uint32_t _tx_not_before_ms;
+        bool _cad_in_progress;
         uint32_t computeSlotTimeMsec() const;
         uint32_t getTxDelayMsec() const;
         void setTxDelay();
+        void startTxCAD();
 
         // Singleton instance for static callbacks
         static MeshService* _instance;
