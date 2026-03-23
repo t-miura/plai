@@ -316,7 +316,12 @@ void AppChannels::_refresh_channels()
         def.index = 0;
         def.has_settings = true;
         def.role = meshtastic_Channel_Role_PRIMARY;
-        strncpy(def.settings.name, "Default", sizeof(def.settings.name) - 1);
+        strncpy(def.settings.name,
+                _data.hal->mesh()->getConfig().lora_config.use_preset
+                    ? Mesh::getPresetName(_data.hal->mesh()->getConfig().lora_config.modem_preset)
+                    : "Custom",
+                sizeof(def.settings.name) - 1);
+        // strncpy(def.settings.name, "Default", sizeof(def.settings.name) - 1);
         _data.channels.push_back({def, store.getUnreadChannelCount(0)});
     }
 
