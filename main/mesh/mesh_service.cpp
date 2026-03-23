@@ -439,12 +439,12 @@ namespace Mesh
     MeshService::MeshService(HAL::Hal* hal)
         : _my_region(nullptr), _bw(250.0f), _sf(11), _cr(5), _saved_freq(0.0f), _saved_channel_num(0), _radio(nullptr),
           _gps(nullptr), _gps_queue(nullptr), _nodedb(nullptr), _router(), _config(), _state(MeshState::UNINITIALIZED),
-          _message_callback(nullptr), _battery_callback(nullptr),
-          _fromradio_state(FromRadioState::IDLE), _fromradio_config_id(0), _fromradio_node_index(0),
-          _fromradio_channel_index(0), _last_nodeinfo_broadcast_ms(0), _force_nodeinfo_broadcast(false),
-          _last_position_broadcast_ms(0), _last_telemetry_broadcast_ms(0), _tx_in_progress(false), _last_tx_start_ms(0),
-          _last_rx_rssi(0), _last_rx_snr(0.0f), _airtime_window_start_ms(0), _airtime_tx_ms(0), _airtime_rx_ms(0),
-          _airtime_tx_ms_prev(0), _airtime_rx_ms_prev(0), _slot_time_ms(28), _tx_not_before_ms(0), _cad_in_progress(false)
+          _message_callback(nullptr), _battery_callback(nullptr), _fromradio_state(FromRadioState::IDLE),
+          _fromradio_config_id(0), _fromradio_node_index(0), _fromradio_channel_index(0), _last_nodeinfo_broadcast_ms(0),
+          _force_nodeinfo_broadcast(false), _last_position_broadcast_ms(0), _last_telemetry_broadcast_ms(0),
+          _tx_in_progress(false), _last_tx_start_ms(0), _last_rx_rssi(0), _last_rx_snr(0.0f), _airtime_window_start_ms(0),
+          _airtime_tx_ms(0), _airtime_rx_ms(0), _airtime_tx_ms_prev(0), _airtime_rx_ms_prev(0), _slot_time_ms(28),
+          _tx_not_before_ms(0), _cad_in_progress(false)
     {
         _hal = hal;
         memset(&_config, 0, sizeof(_config));
@@ -509,11 +509,9 @@ namespace Mesh
         // Set default primary channel
         if (_config.primary_channel.settings.psk.size == 0)
         {
-            // Default channel key
             _config.primary_channel.index = 0;
             _config.primary_channel.role = meshtastic_Channel_Role_PRIMARY;
-            strcpy(_config.primary_channel.settings.name, "LongFast");
-            // Use default PSK (all 1s = simple encryption)
+            _config.primary_channel.settings.name[0] = '\0';
             _config.primary_channel.settings.psk.size = 1;
             _config.primary_channel.settings.psk.bytes[0] = 1;
         }
@@ -1193,15 +1191,11 @@ namespace Mesh
         // LoRa & channel
         _config.lora_config = config.lora_config;
         _config.primary_channel = config.primary_channel;
-        // Ensure primary channel has valid defaults (matches docs behavior)
+        // Ensure primary channel has valid defaults
         if (_config.primary_channel.settings.psk.size == 0)
         {
             _config.primary_channel.index = 0;
             _config.primary_channel.role = meshtastic_Channel_Role_PRIMARY;
-            if (_config.primary_channel.settings.name[0] == '\0')
-            {
-                strcpy(_config.primary_channel.settings.name, "LongFast");
-            }
             _config.primary_channel.settings.psk.size = 1;
             _config.primary_channel.settings.psk.bytes[0] = 1;
         }
@@ -3344,22 +3338,18 @@ namespace Mesh
         loraConfig.tx_power = power;
 
         // Calculate channel number from channel name hash
-        const char* channelName = _config.primary_channel.settings.name;
-        if (channelName[0] == '\0')
-        {
-            channelName = loraConfig.use_preset ? getPresetShortName(loraConfig.modem_preset) : "Custom";
-        }
+        const char* channelName = getChannelNameForHash(_config);
         ESP_LOGI(TAG, "Primary channel name: %s", channelName);
         // Calculate number of channels
         uint32_t numChannels =
             (uint32_t)floor((_my_region->freq_end - _my_region->freq_start) / (_my_region->spacing + (_bw / 1000.0f)));
 
         // Generate channel number from hash
+        const char* presetName = loraConfig.use_preset ? getPresetName(loraConfig.modem_preset) : "Custom";
         uint32_t channel_num =
-            (loraConfig.channel_num ? loraConfig.channel_num - 1 : hashChannelName(channelName)) % numChannels;
-
+            (loraConfig.channel_num ? loraConfig.channel_num - 1 : hashChannelName(presetName)) % numChannels;
         // Calculate frequency (in MHz)
-        float freq_mhz = _my_region->freq_start + (_bw / 2000.0f) + (channel_num * (_bw / 1000.0f));
+        float freq_mhz = _my_region->freq_start + (_bw / 2000.0f) + (channel_num * (_my_region->spacing + _bw / 1000.0f));
 
         // Override if verbatim frequency is set (override_frequency is in MHz)
         if (loraConfig.override_frequency > 0)
