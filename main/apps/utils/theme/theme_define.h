@@ -53,7 +53,7 @@
 
 #define THEME_COLOR_REPL_TEXT TFT_WHITE
 #define FONT_8 &Font0
-#define FONT_6 &TomThumb
+#define FONT_6 &tomthumb_6
 #define FONT_10 &efont_unicode_10
 #define FONT_12 &efont_unicode_12
 #define FONT_16 &efont_unicode_16

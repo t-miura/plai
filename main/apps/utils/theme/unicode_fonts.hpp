@@ -7,3 +7,5 @@ extern const lgfx::U8g2font efont_unicode_10;
 extern const lgfx::U8g2font efont_unicode_12;
 extern const lgfx::U8g2font efont_unicode_14;
 extern const lgfx::U8g2font efont_unicode_16;
+extern const lgfx::U8g2font geist_6;
+extern const lgfx::U8g2font tomthumb_6;
