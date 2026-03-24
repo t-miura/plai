@@ -51,6 +51,7 @@ Full node management with up to 1000 nodes persisted on SD card.
 - Ignore nodes — mark nodes as ignored to filter their traffic _hotkey_ [I] to toggle ignored
 - Node detail view with hardware model, position, and metrics _hotkey_ [Fn] + [ENTER] to open
 - Direct Messages _hotkey_ [ENTER] to open
+- Neighbors _hotkey_ [B] — exchange neighbor info with selected node; [Fn] + [B] open neighbors list view
 - Exchange node info _hotkey_ [N] — send node info request to selected node
 - Exchange position _hotkey_ [P] — send position request to selected node
 - Traceroute _hotkey_ [T] to open recent traceroute logs. [Fn] + [T] to start traceroute immediately
@@ -105,6 +106,21 @@ Manage ignored nodes whose traffic is filtered at the mesh layer. Packets from i
 - **Add/remove** — [I] on a node in the main list toggles ignored status (shown in red)
 - Same navigation and shortcuts as favorites — [ENTER] jump to node, [DEL] remove selected, [Fn]+[DEL] clear all
 - Ignored nodes stored in `ignorelist.dat` on SD; survives resets and updates
+
+#### Neighbors
+
+View direct neighbors (0-hop nodes) reported by each node via the `NEIGHBORINFO_APP` packet.
+
+<p align="center">
+  <img src="pics/nodes_neighbors.png" width="480" alt="Node Neighbors List">
+</p>
+
+- **Exchange** — [B] from node list — sends your direct neighbors and requests theirs back
+- **Open list** — [Fn] + [B] from node list — shows cached neighbor data for the selected node
+- **Navigation** — Arrow keys, [PgUp]/[PgDown] for page scroll, [Fn]+[↑] Home / [Fn]+[↓] End
+- **Jump to node** — [ENTER] selects the highlighted neighbor and returns to node list with that node focused
+- **Read-only** — The neighbor list is populated automatically from received `NEIGHBORINFO_APP` packets; no manual editing
+- Each node's neighbor list stored in `neighbors/<node_id>.dat` on SD; cleaned up when the node is deleted
 
 ### Channels
 
