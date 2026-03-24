@@ -100,6 +100,7 @@ extern "C" void app_main(void)
 
         // Update mesh service (process BLE/radio events)
         hal.updateMesh();
+        vTaskDelay(1);
         if (hal.isDisplaySleeping())
         {
             hal.keyboard()->updateKeyList();
@@ -109,7 +110,6 @@ extern "C" void app_main(void)
         {
             // Update UI framework
             mooncake.update();
-            vTaskDelay(1);
         }
     }
 }
