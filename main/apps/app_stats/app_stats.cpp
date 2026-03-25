@@ -35,8 +35,8 @@
 static const char* TAG __attribute__((unused)) = "APP_STATS";
 
 #define UPDATE_INTERVAL_MS 2000
-#define ROW_HEIGHT 14
-#define BODY_START_Y 16
+#define ROW_HEIGHT 13
+#define BODY_START_Y 15
 #define ICON_SIZE 12
 
 static const char* TAB_NAMES[] = {"NODE", "SYSTEM", "RADIO", "NODE DB", "GPS", "MESH", "TASKS"};
@@ -107,7 +107,7 @@ void AppStats::_render_tab()
 
     _render_tab_header(TAB_NAMES[_data.current_tab]);
 
-    _data.visible_rows = (canvas->height() - BODY_START_Y - 12) / ROW_HEIGHT;
+    _data.visible_rows = (canvas->height() - BODY_START_Y + 1 - 9) / ROW_HEIGHT;
     _data.row_idx = 0;
     _data.row_y = BODY_START_Y;
 
@@ -206,7 +206,7 @@ void AppStats::_render_tab_header(const char* title)
             canvas->drawCircle(cx, cy, dot_r, TFT_DARKGREY);
     }
 
-    canvas->drawFastHLine(0, BODY_START_Y - 2, canvas->width(), THEME_COLOR_HEADER_LINE);
+    canvas->drawFastHLine(0, BODY_START_Y - 1, canvas->width(), THEME_COLOR_HEADER_LINE);
 }
 
 void AppStats::_draw_row(int y, const char* label, const char* value, int value_color)
@@ -349,7 +349,12 @@ void AppStats::_render_radio_info()
     _add_row("Freq", buf, TFT_CYAN);
 
     if (mesh_config.lora_config.use_preset)
-        _add_row("Preset", _preset_name(mesh_config.lora_config.modem_preset), TFT_GREEN);
+        _add_row(
+            "Preset / slot",
+            std::string(
+                std::format("{} / {}", _preset_name(mesh_config.lora_config.modem_preset), mesh_config.lora_config.channel_num))
+                .c_str(),
+            TFT_GREEN);
 
     if (_data.hal->radio())
     {
