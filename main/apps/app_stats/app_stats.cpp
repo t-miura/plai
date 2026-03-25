@@ -56,6 +56,9 @@ void AppStats::onCreate()
     _data.scroll_max = 0;
     _data.last_update_ms = 0;
     _data.needs_redraw = true;
+    _data.prev_task_count = 0;
+    _data.prev_total_runtime = 0;
+    _data.prev_valid = false;
     hl_text_init(&_data.hint_hl_ctx, _data.hal->canvas(), 20, 1500);
 }
 
@@ -584,47 +587,82 @@ void AppStats::_render_mesh_info()
 
 void AppStats::_render_tasks_info()
 {
-    UBaseType_t task_count = uxTaskGetNumberOfTasks();
-    if (task_count == 0)
+    TaskStatus_t tasks[MAX_TASKS];
+    configRUN_TIME_COUNTER_TYPE total_runtime;
+    UBaseType_t filled = uxTaskGetSystemState(tasks, MAX_TASKS, &total_runtime);
+
+    if (filled == 0)
     {
         _add_row("Tasks", "None", TFT_DARKGREY);
         return;
     }
 
-    constexpr int MAX_TASKS = 32;
-    TaskStatus_t tasks[MAX_TASKS];
-    uint32_t total_runtime;
-    UBaseType_t filled = uxTaskGetSystemState(tasks, MAX_TASKS, &total_runtime);
+    configRUN_TIME_COUNTER_TYPE delta_total = total_runtime - _data.prev_total_runtime;
+    configRUN_TIME_COUNTER_TYPE total_cpu_time = delta_total * portNUM_PROCESSORS;
 
-    std::sort(tasks,
-              tasks + filled,
-              [](const TaskStatus_t& a, const TaskStatus_t& b) { return a.uxCurrentPriority > b.uxCurrentPriority; });
-
-    std::string tasks_count = std::format("Total count: {}", (unsigned)filled);
-    _add_row(tasks_count.c_str(), "Core Pri Stack", TFT_ORANGE);
-
-    for (UBaseType_t i = 0; i < filled; i++)
+    uint32_t cpu_pct[MAX_TASKS] = {};
+    if (_data.prev_valid && total_cpu_time > 0)
     {
+        for (UBaseType_t i = 0; i < filled; i++)
+        {
+            configRUN_TIME_COUNTER_TYPE prev_rt = 0;
+            for (UBaseType_t p = 0; p < _data.prev_task_count; p++)
+            {
+                if (_data.prev_tasks[p].handle == tasks[i].xHandle)
+                {
+                    prev_rt = _data.prev_tasks[p].runtime;
+                    break;
+                }
+            }
+            configRUN_TIME_COUNTER_TYPE delta_task = tasks[i].ulRunTimeCounter - prev_rt;
+            cpu_pct[i] = (uint32_t)((delta_task * 100UL) / total_cpu_time);
+        }
+    }
+
+    uint8_t idx[MAX_TASKS];
+    for (UBaseType_t i = 0; i < filled; i++)
+        idx[i] = i;
+    std::sort(idx, idx + filled, [&cpu_pct](uint8_t a, uint8_t b) { return cpu_pct[a] > cpu_pct[b]; });
+
+    std::string tasks_count = std::format("Tasks: {}", (unsigned)filled);
+    _add_row(tasks_count.c_str(), "CPU Core Pri  Stk", TFT_ORANGE);
+
+    for (UBaseType_t j = 0; j < filled; j++)
+    {
+        UBaseType_t i = idx[j];
+
 #ifdef CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID
         int core = tasks[i].xCoreID;
-        const char* core_str = core == 0 ? "#0" : core == 1 ? "#1" : "";
+        const char* core_str = core == 0 ? "#0" : core == 1 ? "#1" : "#*";
 #else
-        const char* core_str = "";
+        const char* core_str = "#?";
 #endif
-        std::string task_descr = std::format("{:2s}  {:2d} {:4d}B",
+        std::string task_descr = std::format("{:3d}%   {:2s}  {:2d} {:4d}",
+                                             cpu_pct[i],
                                              core_str,
                                              (unsigned)tasks[i].uxCurrentPriority,
                                              (unsigned long)tasks[i].usStackHighWaterMark);
         int color;
-        if (tasks[i].usStackHighWaterMark < 512)
+        if (cpu_pct[i] >= 50)
             color = TFT_RED;
-        else if (tasks[i].usStackHighWaterMark < 1024)
+        else if (cpu_pct[i] >= 10)
             color = TFT_YELLOW;
+        else if (tasks[i].usStackHighWaterMark < 512)
+            color = TFT_RED;
         else
             color = TFT_CYAN;
 
         _add_row(tasks[i].pcTaskName, task_descr.c_str(), color);
     }
+
+    for (UBaseType_t i = 0; i < filled && i < MAX_TASKS; i++)
+    {
+        _data.prev_tasks[i].handle = tasks[i].xHandle;
+        _data.prev_tasks[i].runtime = tasks[i].ulRunTimeCounter;
+    }
+    _data.prev_task_count = filled < MAX_TASKS ? filled : MAX_TASKS;
+    _data.prev_total_runtime = total_runtime;
+    _data.prev_valid = true;
 }
 
 // ========== Input Handling ==========

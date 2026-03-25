@@ -13,6 +13,8 @@
 #include "../apps.h"
 #include <vector>
 #include <string>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "apps/utils/theme/theme_define.h"
 #include "apps/utils/anim/anim_define.h"
@@ -29,6 +31,8 @@ namespace MOONCAKE::APPS
     {
     private:
         static constexpr int TAB_COUNT = 7;
+        static constexpr int MAX_TASKS = 16;
+
         enum Tab
         {
             TAB_NODE = 0,
@@ -38,6 +42,12 @@ namespace MOONCAKE::APPS
             TAB_GPS,
             TAB_MESH,
             TAB_TASKS
+        };
+
+        struct TaskSnapshot
+        {
+            TaskHandle_t handle;
+            configRUN_TIME_COUNTER_TYPE runtime;
         };
 
         struct
@@ -52,6 +62,11 @@ namespace MOONCAKE::APPS
             uint32_t last_update_ms;
             bool needs_redraw;
             UTILS::HL_TEXT::HLTextContext_t hint_hl_ctx;
+
+            TaskSnapshot prev_tasks[MAX_TASKS];
+            UBaseType_t prev_task_count;
+            configRUN_TIME_COUNTER_TYPE prev_total_runtime;
+            bool prev_valid;
         } _data;
 
         void _render_tab();
