@@ -427,6 +427,26 @@ namespace Mesh
         // Device telemetry broadcast
         bool sendDeviceTelemetry(uint32_t dest = 0xFFFFFFFF, uint8_t channel = 0);
 
+        /**
+         * @brief Shared encrypt-and-send: encrypts a protobuf-encoded meshtastic_Data
+         *        buffer with channel PSK (AES-CTR), builds the on-air header, and enqueues
+         *        the packet for transmission.
+         * @param data_buf       Protobuf-encoded meshtastic_Data bytes
+         * @param data_len       Length of data_buf
+         * @param dest           Destination node ID (0xFFFFFFFF = broadcast)
+         * @param want_ack       Set WANT_ACK flag in the on-air header
+         * @param hop_limit      Hop limit / hop start value
+         * @param priority       TX queue priority
+         * @param port_num       Port number hint for TX queue logging
+         * @param out_raw_buf    If non-null, receives a copy of the raw radio packet (for retry tracking)
+         * @param out_raw_len    If non-null, receives the raw packet length
+         * @return Generated packet ID on success, 0 on failure
+         */
+        uint32_t encryptAndSend(const uint8_t* data_buf, size_t data_len,
+                                uint32_t dest, bool want_ack, uint8_t hop_limit,
+                                PacketPriority priority, meshtastic_PortNum port_num,
+                                uint8_t* out_raw_buf = nullptr, size_t* out_raw_len = nullptr);
+
         // New-node greeting
         void sendNewNodeGreeting(uint32_t node_id, uint8_t channel, uint8_t hops, int16_t rssi, float snr);
 

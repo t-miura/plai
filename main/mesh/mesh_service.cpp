@@ -972,7 +972,6 @@ namespace Mesh
         memcpy(data_msg.payload.bytes, data, len);
         data_msg.want_response = false;
 
-        // Protobuf-encode the Data payload
         uint8_t data_buf[MAX_LORA_PAYLOAD] = {};
         pb_ostream_t data_stream = pb_ostream_from_buffer(data_buf, sizeof(data_buf));
         if (!pb_encode(&data_stream, meshtastic_Data_fields, &data_msg))
@@ -981,110 +980,35 @@ namespace Mesh
             return false;
         }
 
-        // bool is_broadcast = (dest == 0xFFFFFFFF);
-        uint32_t packet_id = _router.generatePacketId();
-        uint8_t hop_limit = _config.lora_config.hop_limit;
-        bool want_ack = true;
+        uint8_t raw_buf[MAX_LORA_PAYLOAD];
+        size_t raw_len = 0;
+        uint32_t packet_id = encryptAndSend(
+            data_buf, data_stream.bytes_written, dest, true,
+            _config.lora_config.hop_limit, PacketPriority::RELIABLE,
+            port_num, raw_buf, &raw_len);
 
-        // Get channel encryption key
-        uint8_t key[32] = {};
-        size_t key_len = 0;
-        bool no_crypto = false;
-        if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
-        {
-            ESP_LOGE(TAG, "Failed to expand channel PSK for sendData");
+        if (packet_id == 0)
             return false;
-        }
 
-        uint8_t channel_hash = 0;
-        computeChannelHash(_config, key, key_len, channel_hash);
-
-        size_t payload_len = data_stream.bytes_written;
-        if (payload_len > (MAX_LORA_PAYLOAD - MESHTASTIC_HEADER_LENGTH))
+        uint32_t now = millis();
+        if (_pending_acks.size() >= MAX_PENDING_ACKS)
         {
-            ESP_LOGE(TAG, "Data payload too large for LoRa");
-            return false;
-        }
-
-        uint8_t payload[MAX_LORA_PAYLOAD] = {};
-        if (no_crypto)
-        {
-            memcpy(payload, data_buf, payload_len);
-        }
-        else
-        {
-#if MESH_HAS_MBEDTLS
-            mbedtls_aes_context ctx;
-            mbedtls_aes_init(&ctx);
-            if (mbedtls_aes_setkey_enc(&ctx, key, (int)(key_len * 8)) != 0)
+            auto oldest = _pending_acks.begin();
+            for (auto it = _pending_acks.begin(); it != _pending_acks.end(); ++it)
             {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "Failed to set AES key for sendData");
-                return false;
+                if (it->second.send_time_ms < oldest->second.send_time_ms)
+                    oldest = it;
             }
-
-            uint8_t nonce[16] = {};
-            writeU64Le(nonce, (uint64_t)packet_id);
-            writeU32Le(nonce + 8, _config.node_id);
-
-            size_t nc_off = 0;
-            uint8_t stream_block[16] = {};
-            if (mbedtls_aes_crypt_ctr(&ctx, payload_len, &nc_off, nonce, stream_block, data_buf, payload) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "AES-CTR encrypt failed for sendData");
-                return false;
-            }
-            mbedtls_aes_free(&ctx);
-#else
-            ESP_LOGE(TAG, "AES support not available for sendData");
-            return false;
-#endif
+            _pending_acks.erase(oldest);
         }
-
-        PacketHeader header = {};
-        header.to = dest;
-        header.from = _config.node_id;
-        header.id = packet_id;
-        header.channel = channel_hash;
-        header.next_hop = 0;
-        header.relay_node = (uint8_t)(_config.node_id & 0xFFu);
-        header.flags = (hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
-                       ((hop_limit << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK) |
-                       (want_ack ? PACKET_FLAGS_WANT_ACK_MASK : 0);
-
-        uint8_t radio_buf[MAX_LORA_PAYLOAD] = {};
-        memcpy(radio_buf, &header, sizeof(header));
-        memcpy(radio_buf + sizeof(header), payload, payload_len);
-        const size_t radio_len = sizeof(header) + payload_len;
-
-        PacketPriority priority = want_ack ? PacketPriority::RELIABLE : PacketPriority::DEFAULT;
-        if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, priority, (uint8_t)port_num))
-        {
-            if (want_ack)
-            {
-                uint32_t now = millis();
-                if (_pending_acks.size() >= MAX_PENDING_ACKS)
-                {
-                    auto oldest = _pending_acks.begin();
-                    for (auto it = _pending_acks.begin(); it != _pending_acks.end(); ++it)
-                    {
-                        if (it->second.send_time_ms < oldest->second.send_time_ms)
-                            oldest = it;
-                    }
-                    _pending_acks.erase(oldest);
-                }
-                PendingAck pa = {};
-                pa.send_time_ms = now;
-                pa.retries_left = MAX_TX_RETRIES;
-                pa.raw_len = (uint8_t)radio_len;
-                pa.port_hint = port_num;
-                memcpy(pa.raw_data, radio_buf, radio_len);
-                _pending_acks[packet_id] = pa;
-            }
-            return true;
-        }
-        return false;
+        PendingAck pa = {};
+        pa.send_time_ms = now;
+        pa.retries_left = MAX_TX_RETRIES;
+        pa.raw_len = (uint8_t)raw_len;
+        pa.port_hint = port_num;
+        memcpy(pa.raw_data, raw_buf, raw_len);
+        _pending_acks[packet_id] = pa;
+        return true;
     }
 
     void MeshService::setGps(HAL::GPS* gps)
@@ -2877,90 +2801,13 @@ namespace Mesh
                 return;
             }
 
-            // Create mesh packet
-            meshtastic_MeshPacket response = meshtastic_MeshPacket_init_default;
-            response.from = _config.node_id;
-            response.to = packet.from; // Send back to original sender
-            response.id = _router.generatePacketId();
-            response.channel = packet.channel;
-            response.want_ack = false;
-            response.hop_limit = _config.lora_config.hop_limit;
-            response.hop_start = response.hop_limit;
-
-            // Build and send the packet (similar to sendNodeInfo)
-            uint8_t key[32] = {};
-            size_t key_len = 0;
-            bool no_crypto = false;
-            if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
-            {
-                ESP_LOGE(TAG, "Failed to expand channel PSK for TraceRoute response");
-                return;
-            }
-
-            uint8_t channel_hash = 0;
-            computeChannelHash(_config, key, key_len, channel_hash);
-
-            uint8_t payload[MAX_LORA_PAYLOAD] = {};
-            size_t payload_len = data_stream.bytes_written;
-
-            if (no_crypto)
-            {
-                memcpy(payload, data_buf, payload_len);
-            }
-            else
-            {
-#if MESH_HAS_MBEDTLS
-                mbedtls_aes_context ctx;
-                mbedtls_aes_init(&ctx);
-                if (mbedtls_aes_setkey_enc(&ctx, key, (int)(key_len * 8)) != 0)
-                {
-                    mbedtls_aes_free(&ctx);
-                    ESP_LOGE(TAG, "Failed to set AES key for TraceRoute response");
-                    return;
-                }
-
-                uint8_t nonce[16] = {};
-                writeU64Le(nonce, (uint64_t)response.id);
-                writeU32Le(nonce + 8, response.from);
-
-                size_t nc_off = 0;
-                uint8_t stream_block[16] = {};
-                if (mbedtls_aes_crypt_ctr(&ctx, payload_len, &nc_off, nonce, stream_block, data_buf, payload) != 0)
-                {
-                    mbedtls_aes_free(&ctx);
-                    ESP_LOGE(TAG, "AES-CTR encrypt failed for TraceRoute response");
-                    return;
-                }
-                mbedtls_aes_free(&ctx);
-#else
-                ESP_LOGE(TAG, "AES support not available for TraceRoute response");
-                return;
-#endif
-            }
-
-            PacketHeader header = {};
-            header.to = response.to;
-            header.from = response.from;
-            header.id = response.id;
-            header.channel = channel_hash;
-            header.next_hop = 0;
-            header.relay_node = (uint8_t)(response.from & 0xFFu);
-            header.flags = (response.hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
-                           ((response.hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
-
-            uint8_t radio_buf[MAX_LORA_PAYLOAD] = {};
-            memcpy(radio_buf, &header, sizeof(header));
-            memcpy(radio_buf + sizeof(header), payload, payload_len);
-            const size_t radio_len = sizeof(header) + payload_len;
-
-            if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, PacketPriority::DEFAULT, meshtastic_PortNum_TRACEROUTE_APP))
-            {
+            uint32_t pid = encryptAndSend(data_buf, data_stream.bytes_written, packet.from, false,
+                                          _config.lora_config.hop_limit, PacketPriority::DEFAULT,
+                                          meshtastic_PortNum_TRACEROUTE_APP);
+            if (pid)
                 ESP_LOGI(TAG, "TraceRoute response sent to 0x%08lX", (unsigned long)packet.from);
-            }
             else
-            {
                 ESP_LOGW(TAG, "Failed to enqueue TraceRoute response");
-            }
         }
         else if (for_us && !is_request)
         {
@@ -3085,92 +2932,16 @@ namespace Mesh
             return false;
         }
 
-        // Create mesh packet
-        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
-        packet.from = _config.node_id;
-        packet.to = dest;
-        packet.id = _router.generatePacketId();
-        packet.channel = channel;
-        packet.want_ack = true; // Use reliable delivery for traceroute
-        packet.hop_limit = _config.lora_config.hop_limit;
-        packet.hop_start = packet.hop_limit;
-
-        // Build and send the packet
-        uint8_t key[32] = {};
-        size_t key_len = 0;
-        bool no_crypto = false;
-        if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
-        {
-            ESP_LOGE(TAG, "Failed to expand channel PSK for TraceRoute request");
-            return false;
-        }
-
-        uint8_t channel_hash = 0;
-        computeChannelHash(_config, key, key_len, channel_hash);
-
-        uint8_t payload[MAX_LORA_PAYLOAD] = {};
-        size_t payload_len = data_stream.bytes_written;
-
-        if (no_crypto)
-        {
-            memcpy(payload, data_buf, payload_len);
-        }
-        else
-        {
-#if MESH_HAS_MBEDTLS
-            mbedtls_aes_context ctx;
-            mbedtls_aes_init(&ctx);
-            if (mbedtls_aes_setkey_enc(&ctx, key, (int)(key_len * 8)) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "Failed to set AES key for TraceRoute request");
-                return false;
-            }
-
-            uint8_t nonce[16] = {};
-            writeU64Le(nonce, (uint64_t)packet.id);
-            writeU32Le(nonce + 8, packet.from);
-
-            size_t nc_off = 0;
-            uint8_t stream_block[16] = {};
-            if (mbedtls_aes_crypt_ctr(&ctx, payload_len, &nc_off, nonce, stream_block, data_buf, payload) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "AES-CTR encrypt failed for TraceRoute request");
-                return false;
-            }
-            mbedtls_aes_free(&ctx);
-#else
-            ESP_LOGE(TAG, "AES support not available for TraceRoute request");
-            return false;
-#endif
-        }
-
-        PacketHeader header = {};
-        header.to = packet.to;
-        header.from = packet.from;
-        header.id = packet.id;
-        header.channel = channel_hash;
-        header.next_hop = 0;
-        header.relay_node = (uint8_t)(packet.from & 0xFFu);
-        header.flags = (packet.hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
-                       ((packet.hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
-
-        uint8_t radio_buf[MAX_LORA_PAYLOAD] = {};
-        memcpy(radio_buf, &header, sizeof(header));
-        memcpy(radio_buf + sizeof(header), payload, payload_len);
-        const size_t radio_len = sizeof(header) + payload_len;
-
-        if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, PacketPriority::DEFAULT, meshtastic_PortNum_TRACEROUTE_APP))
+        uint32_t pid = encryptAndSend(data_buf, data_stream.bytes_written, dest, false,
+                                      _config.lora_config.hop_limit, PacketPriority::DEFAULT,
+                                      meshtastic_PortNum_TRACEROUTE_APP);
+        if (pid)
         {
             ESP_LOGI(TAG, "TraceRoute request sent to 0x%08lX", (unsigned long)dest);
             return true;
         }
-        else
-        {
-            ESP_LOGW(TAG, "Failed to enqueue TraceRoute request");
-            return false;
-        }
+        ESP_LOGW(TAG, "Failed to enqueue TraceRoute request");
+        return false;
     }
 
     meshtastic_Config_LoRaConfig_RegionCode MeshService::regionCodeFromName(const std::string& name)
@@ -3489,6 +3260,94 @@ namespace Mesh
         sendNodeInfo(0xFFFFFFFF, 0, false);
     }
 
+    uint32_t MeshService::encryptAndSend(const uint8_t* data_buf, size_t data_len,
+                                         uint32_t dest, bool want_ack, uint8_t hop_limit,
+                                         PacketPriority priority, meshtastic_PortNum port_num,
+                                         uint8_t* out_raw_buf, size_t* out_raw_len)
+    {
+        uint8_t key[32] = {};
+        size_t key_len = 0;
+        bool no_crypto = false;
+        if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
+        {
+            ESP_LOGE(TAG, "Failed to expand channel PSK");
+            return 0;
+        }
+
+        uint8_t channel_hash = 0;
+        computeChannelHash(_config, key, key_len, channel_hash);
+
+        if (data_len > (MAX_LORA_PAYLOAD - MESHTASTIC_HEADER_LENGTH))
+        {
+            ESP_LOGE(TAG, "Payload too large for LoRa (%u bytes)", (unsigned)data_len);
+            return 0;
+        }
+
+        uint32_t packet_id = _router.generatePacketId();
+        uint8_t payload[MAX_LORA_PAYLOAD] = {};
+
+        if (no_crypto)
+        {
+            memcpy(payload, data_buf, data_len);
+        }
+        else
+        {
+#if MESH_HAS_MBEDTLS
+            mbedtls_aes_context ctx;
+            mbedtls_aes_init(&ctx);
+            if (mbedtls_aes_setkey_enc(&ctx, key, (int)(key_len * 8)) != 0)
+            {
+                mbedtls_aes_free(&ctx);
+                ESP_LOGE(TAG, "Failed to set AES key");
+                return 0;
+            }
+
+            uint8_t nonce[16] = {};
+            writeU64Le(nonce, (uint64_t)packet_id);
+            writeU32Le(nonce + 8, _config.node_id);
+
+            size_t nc_off = 0;
+            uint8_t stream_block[16] = {};
+            if (mbedtls_aes_crypt_ctr(&ctx, data_len, &nc_off, nonce, stream_block, data_buf, payload) != 0)
+            {
+                mbedtls_aes_free(&ctx);
+                ESP_LOGE(TAG, "AES-CTR encrypt failed");
+                return 0;
+            }
+            mbedtls_aes_free(&ctx);
+#else
+            ESP_LOGE(TAG, "AES support not available");
+            return 0;
+#endif
+        }
+
+        PacketHeader header = {};
+        header.to = dest;
+        header.from = _config.node_id;
+        header.id = packet_id;
+        header.channel = channel_hash;
+        header.next_hop = 0;
+        header.relay_node = (uint8_t)(_config.node_id & 0xFFu);
+        header.flags = (hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
+                       ((hop_limit << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK) |
+                       (want_ack ? PACKET_FLAGS_WANT_ACK_MASK : 0);
+
+        uint8_t radio_buf[MAX_LORA_PAYLOAD] = {};
+        memcpy(radio_buf, &header, sizeof(header));
+        memcpy(radio_buf + sizeof(header), payload, data_len);
+        const size_t radio_len = sizeof(header) + data_len;
+
+        if (out_raw_buf)
+            memcpy(out_raw_buf, radio_buf, radio_len);
+        if (out_raw_len)
+            *out_raw_len = radio_len;
+
+        if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, priority, (uint8_t)port_num))
+            return packet_id;
+
+        return 0;
+    }
+
     void MeshService::sendNodeInfo(uint32_t dest, uint8_t channel, bool want_response)
     {
         if (!_nodedb)
@@ -3553,100 +3412,15 @@ namespace Mesh
             return;
         }
 
-        // Create mesh packet
-        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
-        packet.from = _config.node_id;
-        packet.to = dest;
-        packet.id = _router.generatePacketId();
-        packet.channel = channel;
-        packet.want_ack = false;
-        packet.hop_limit = _config.lora_config.hop_limit;
-        packet.hop_start = packet.hop_limit;
-
-        // Build on-air packet (header + encrypted payload)
-        uint8_t key[32] = {};
-        size_t key_len = 0;
-        bool no_crypto = false;
-        if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
-        {
-            ESP_LOGE(TAG, "Failed to expand channel PSK for NodeInfo");
-            return;
-        }
-        memcpy(packet.public_key.bytes, key, 32);
-
-        uint8_t channel_hash = 0;
-        computeChannelHash(_config, key, key_len, channel_hash);
-
-        uint8_t payload[MAX_LORA_PAYLOAD] = {};
-        size_t payload_len = data_stream.bytes_written;
-        if (payload_len > (MAX_LORA_PAYLOAD - MESHTASTIC_HEADER_LENGTH))
-        {
-            ESP_LOGE(TAG, "NodeInfo payload too large");
-            return;
-        }
-
-        if (no_crypto)
-        {
-            memcpy(payload, data_buf, payload_len);
-        }
-        else
-        {
-#if MESH_HAS_MBEDTLS
-            mbedtls_aes_context ctx;
-            mbedtls_aes_init(&ctx);
-            if (mbedtls_aes_setkey_enc(&ctx, key, (int)(key_len * 8)) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "Failed to set AES key for NodeInfo");
-                return;
-            }
-
-            uint8_t nonce[16] = {};
-            writeU64Le(nonce, (uint64_t)packet.id);
-            writeU32Le(nonce + 8, packet.from);
-
-            size_t nc_off = 0;
-            uint8_t stream_block[16] = {};
-            if (mbedtls_aes_crypt_ctr(&ctx, payload_len, &nc_off, nonce, stream_block, data_buf, payload) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "AES-CTR encrypt failed for NodeInfo");
-                return;
-            }
-            mbedtls_aes_free(&ctx);
-#else
-            ESP_LOGE(TAG, "AES support not available for NodeInfo");
-            return;
-#endif
-        }
-
-        PacketHeader header = {};
-        header.to = packet.to;
-        header.from = packet.from;
-        header.id = packet.id;
-        header.channel = channel_hash;
-        header.next_hop = 0;
-        header.relay_node = (uint8_t)(packet.from & 0xFFu);
-        header.flags = (packet.hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
-                       ((packet.hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
-
-        uint8_t radio_buf[MAX_LORA_PAYLOAD] = {};
-        memcpy(radio_buf, &header, sizeof(header));
-        memcpy(radio_buf + sizeof(header), payload, payload_len);
-        const size_t radio_len = sizeof(header) + payload_len;
-
-        // Enqueue for transmission (raw on-air packet)
         PacketPriority priority = is_broadcast ? PacketPriority::BACKGROUND : PacketPriority::DEFAULT;
-        if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, priority, meshtastic_PortNum_NODEINFO_APP))
+        uint32_t pid = encryptAndSend(data_buf, data_stream.bytes_written, dest, false,
+                                      _config.lora_config.hop_limit, priority, meshtastic_PortNum_NODEINFO_APP);
+        if (pid)
         {
             if (is_broadcast)
-            {
                 ESP_LOGI(TAG, "Broadcasting node info (node ID: 0x%08lX)", (unsigned long)_config.node_id);
-            }
             else
-            {
                 ESP_LOGI(TAG, "Sending node info to 0x%08lX", (unsigned long)dest);
-            }
         }
         else
         {
@@ -3704,94 +3478,13 @@ namespace Mesh
             return;
         }
 
-        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
-        packet.from = _config.node_id;
-        packet.to = dest;
-        packet.id = _router.generatePacketId();
-        packet.channel = channel;
-        packet.want_ack = false;
-        packet.hop_limit = _config.lora_config.hop_limit;
-        packet.hop_start = packet.hop_limit;
-
-        uint8_t key[32] = {};
-        size_t key_len = 0;
-        bool no_crypto = false;
-        if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
-        {
-            ESP_LOGE(TAG, "Failed to expand channel PSK for NeighborInfo");
-            return;
-        }
-        memcpy(packet.public_key.bytes, key, 32);
-
-        uint8_t channel_hash = 0;
-        computeChannelHash(_config, key, key_len, channel_hash);
-
-        uint8_t payload[MAX_LORA_PAYLOAD] = {};
-        size_t payload_len = data_stream.bytes_written;
-        if (payload_len > (MAX_LORA_PAYLOAD - MESHTASTIC_HEADER_LENGTH))
-        {
-            ESP_LOGE(TAG, "NeighborInfo payload too large");
-            return;
-        }
-
-        if (no_crypto)
-        {
-            memcpy(payload, data_buf, payload_len);
-        }
-        else
-        {
-#if MESH_HAS_MBEDTLS
-            mbedtls_aes_context ctx;
-            mbedtls_aes_init(&ctx);
-            if (mbedtls_aes_setkey_enc(&ctx, key, (int)(key_len * 8)) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "Failed to set AES key for NeighborInfo");
-                return;
-            }
-
-            uint8_t nonce[16] = {};
-            writeU64Le(nonce, (uint64_t)packet.id);
-            writeU32Le(nonce + 8, packet.from);
-
-            size_t nc_off = 0;
-            uint8_t stream_block[16] = {};
-            if (mbedtls_aes_crypt_ctr(&ctx, payload_len, &nc_off, nonce, stream_block, data_buf, payload) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "AES-CTR encrypt failed for NeighborInfo");
-                return;
-            }
-            mbedtls_aes_free(&ctx);
-#else
-            ESP_LOGE(TAG, "AES support not available for NeighborInfo");
-            return;
-#endif
-        }
-
-        PacketHeader header = {};
-        header.to = packet.to;
-        header.from = packet.from;
-        header.id = packet.id;
-        header.channel = channel_hash;
-        header.next_hop = 0;
-        header.relay_node = (uint8_t)(packet.from & 0xFFu);
-        header.flags = (packet.hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
-                       ((packet.hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
-
-        uint8_t radio_buf[MAX_LORA_PAYLOAD] = {};
-        memcpy(radio_buf, &header, sizeof(header));
-        memcpy(radio_buf + sizeof(header), payload, payload_len);
-        const size_t radio_len = sizeof(header) + payload_len;
-
-        if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, PacketPriority::DEFAULT, meshtastic_PortNum_NEIGHBORINFO_APP))
-        {
+        uint32_t pid = encryptAndSend(data_buf, data_stream.bytes_written, dest, false,
+                                      _config.lora_config.hop_limit, PacketPriority::DEFAULT,
+                                      meshtastic_PortNum_NEIGHBORINFO_APP);
+        if (pid)
             ESP_LOGI(TAG, "NeighborInfo sent to 0x%08lX", (unsigned long)dest);
-        }
         else
-        {
             ESP_LOGW(TAG, "Failed to enqueue NeighborInfo");
-        }
     }
 
     bool MeshService::getNode(uint32_t node_id, NodeInfo& out) const
@@ -3953,101 +3646,17 @@ namespace Mesh
             return false;
         }
 
-        // 3. Build mesh packet header
         bool is_broadcast = (dest == 0xFFFFFFFF);
-        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
-        packet.from = _config.node_id;
-        packet.to = dest;
-        packet.id = _router.generatePacketId();
-        packet.channel = channel;
-        packet.want_ack = false;
-        packet.hop_limit = _config.lora_config.hop_limit;
-        packet.hop_start = packet.hop_limit;
-
-        // 4. Encrypt payload (same on-air format as sendNodeInfo)
-        uint8_t key[32] = {};
-        size_t key_len = 0;
-        bool no_crypto = false;
-        if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
-        {
-            ESP_LOGE(TAG, "Failed to expand channel PSK for Position");
-            return false;
-        }
-
-        uint8_t channel_hash = 0;
-        computeChannelHash(_config, key, key_len, channel_hash);
-
-        uint8_t payload[MAX_LORA_PAYLOAD] = {};
-        size_t payload_len = data_stream.bytes_written;
-        if (payload_len > (MAX_LORA_PAYLOAD - MESHTASTIC_HEADER_LENGTH))
-        {
-            ESP_LOGE(TAG, "Position payload too large");
-            return false;
-        }
-
-        if (no_crypto)
-        {
-            memcpy(payload, data_buf, payload_len);
-        }
-        else
-        {
-#if MESH_HAS_MBEDTLS
-            mbedtls_aes_context ctx;
-            mbedtls_aes_init(&ctx);
-            if (mbedtls_aes_setkey_enc(&ctx, key, (int)(key_len * 8)) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "Failed to set AES key for Position");
-                return false;
-            }
-
-            uint8_t nonce[16] = {};
-            writeU64Le(nonce, (uint64_t)packet.id);
-            writeU32Le(nonce + 8, packet.from);
-
-            size_t nc_off = 0;
-            uint8_t stream_block[16] = {};
-            if (mbedtls_aes_crypt_ctr(&ctx, payload_len, &nc_off, nonce, stream_block, data_buf, payload) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "AES-CTR encrypt failed for Position");
-                return false;
-            }
-            mbedtls_aes_free(&ctx);
-#else
-            ESP_LOGE(TAG, "AES support not available for Position");
-            return false;
-#endif
-        }
-
-        // 5. Assemble on-air packet (header + encrypted payload)
-        PacketHeader header = {};
-        header.to = packet.to;
-        header.from = packet.from;
-        header.id = packet.id;
-        header.channel = channel_hash;
-        header.next_hop = 0;
-        header.relay_node = (uint8_t)(packet.from & 0xFFu);
-        header.flags = (packet.hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
-                       ((packet.hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
-
-        uint8_t radio_buf[MAX_LORA_PAYLOAD] = {};
-        memcpy(radio_buf, &header, sizeof(header));
-        memcpy(radio_buf + sizeof(header), payload, payload_len);
-        const size_t radio_len = sizeof(header) + payload_len;
-
-        // 6. Enqueue for transmission
         PacketPriority priority = is_broadcast ? PacketPriority::BACKGROUND : PacketPriority::DEFAULT;
-        if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, priority, meshtastic_PortNum_POSITION_APP))
+        uint32_t pid = encryptAndSend(data_buf, data_stream.bytes_written, dest, false,
+                                      _config.lora_config.hop_limit, priority, meshtastic_PortNum_POSITION_APP);
+        if (pid)
         {
-            ESP_LOGI(TAG, "Position packet queued to 0x%08lX (%lu bytes)", (unsigned long)dest, radio_len);
+            ESP_LOGI(TAG, "Position packet queued to 0x%08lX", (unsigned long)dest);
             return true;
         }
-        else
-        {
-            ESP_LOGW(TAG, "Failed to enqueue position packet");
-            return false;
-        }
+        ESP_LOGW(TAG, "Failed to enqueue position packet");
+        return false;
     }
 
     static void expandGreetingTemplate(const char* tmpl,
@@ -4281,102 +3890,16 @@ namespace Mesh
             return false;
         }
 
-        // 3. Build mesh packet header
-        // bool is_broadcast = (dest == 0xFFFFFFFF);
-        meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
-        packet.from = _config.node_id;
-        packet.to = dest;
-        packet.id = _router.generatePacketId();
-        packet.channel = channel;
-        packet.want_ack = false;
-        packet.hop_limit = _config.lora_config.hop_limit;
-        packet.hop_start = packet.hop_limit;
-
-        // 4. Encrypt payload
-        uint8_t key[32] = {};
-        size_t key_len = 0;
-        bool no_crypto = false;
-        if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
+        uint32_t pid = encryptAndSend(data_buf, data_stream.bytes_written, dest, false,
+                                      _config.lora_config.hop_limit, PacketPriority::BACKGROUND,
+                                      meshtastic_PortNum_TELEMETRY_APP);
+        if (pid)
         {
-            ESP_LOGE(TAG, "Failed to expand channel PSK for Telemetry");
-            return false;
-        }
-        memcpy(packet.public_key.bytes, key, 32);
-
-        uint8_t channel_hash = 0;
-        computeChannelHash(_config, key, key_len, channel_hash);
-
-        uint8_t payload[MAX_LORA_PAYLOAD] = {};
-        size_t payload_len = data_stream.bytes_written;
-        if (payload_len > (MAX_LORA_PAYLOAD - MESHTASTIC_HEADER_LENGTH))
-        {
-            ESP_LOGE(TAG, "Telemetry payload too large");
-            return false;
-        }
-
-        if (no_crypto)
-        {
-            memcpy(payload, data_buf, payload_len);
-        }
-        else
-        {
-#if MESH_HAS_MBEDTLS
-            mbedtls_aes_context ctx;
-            mbedtls_aes_init(&ctx);
-            if (mbedtls_aes_setkey_enc(&ctx, key, (int)(key_len * 8)) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "Failed to set AES key for Telemetry");
-                return false;
-            }
-
-            uint8_t nonce[16] = {};
-            writeU64Le(nonce, (uint64_t)packet.id);
-            writeU32Le(nonce + 8, packet.from);
-
-            size_t nc_off = 0;
-            uint8_t stream_block[16] = {};
-            if (mbedtls_aes_crypt_ctr(&ctx, payload_len, &nc_off, nonce, stream_block, data_buf, payload) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "AES-CTR encrypt failed for Telemetry");
-                return false;
-            }
-            mbedtls_aes_free(&ctx);
-#else
-            ESP_LOGE(TAG, "AES support not available for Telemetry");
-            return false;
-#endif
-        }
-
-        // 5. Assemble on-air packet (header + encrypted payload)
-        PacketHeader header = {};
-        header.to = packet.to;
-        header.from = packet.from;
-        header.id = packet.id;
-        header.channel = channel_hash;
-        header.next_hop = 0;
-        header.relay_node = (uint8_t)(packet.from & 0xFFu);
-        header.flags = (packet.hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
-                       ((packet.hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
-
-        uint8_t radio_buf[MAX_LORA_PAYLOAD] = {};
-        memcpy(radio_buf, &header, sizeof(header));
-        memcpy(radio_buf + sizeof(header), payload, payload_len);
-        const size_t radio_len = sizeof(header) + payload_len;
-
-        // 6. Enqueue for transmission
-        PacketPriority priority = PacketPriority::BACKGROUND;
-        if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, priority, meshtastic_PortNum_TELEMETRY_APP))
-        {
-            ESP_LOGI(TAG, "Telemetry packet queued (%lu bytes)", radio_len);
+            ESP_LOGI(TAG, "Telemetry packet queued");
             return true;
         }
-        else
-        {
-            ESP_LOGW(TAG, "Failed to enqueue telemetry packet");
-            return false;
-        }
+        ESP_LOGW(TAG, "Failed to enqueue telemetry packet");
+        return false;
     }
 
     uint8_t MeshService::getHopLimitForResponse(uint8_t hop_start, uint8_t hop_limit) const
@@ -4432,7 +3955,6 @@ namespace Mesh
         data.request_id = packet_id; // Reference the original packet ID
         data.want_response = false;
 
-        // Encode the Data message
         uint8_t data_buf[MAX_LORA_PAYLOAD] = {};
         pb_ostream_t data_stream = pb_ostream_from_buffer(data_buf, sizeof(data_buf));
         if (!pb_encode(&data_stream, meshtastic_Data_fields, &data))
@@ -4441,94 +3963,15 @@ namespace Mesh
             return false;
         }
 
-        // Create mesh packet
-        meshtastic_MeshPacket rsp_packet = meshtastic_MeshPacket_init_default;
-        rsp_packet.from = _config.node_id;
-        rsp_packet.to = to;
-        rsp_packet.id = _router.generatePacketId();
-        rsp_packet.channel = channel;
-        rsp_packet.want_ack = false; // routing replies never want an ACK back
-        rsp_packet.hop_limit = hop_limit;
-        rsp_packet.hop_start = hop_limit;
-        rsp_packet.priority = meshtastic_MeshPacket_Priority_ACK;
-
-        // Get channel key for encryption
-        uint8_t key[32] = {};
-        size_t key_len = 0;
-        bool no_crypto = false;
-        uint8_t channel_hash = 0;
-
-        if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
-        {
-            ESP_LOGE(TAG, "Failed to expand channel PSK for routing reply");
-            return false;
-        }
-        computeChannelHash(_config, key, key_len, channel_hash);
-
-        // Encrypt the payload
-        uint8_t encrypted[MAX_LORA_PAYLOAD] = {};
-        size_t encrypted_len = data_stream.bytes_written;
-        memcpy(encrypted, data_buf, encrypted_len);
-
-        if (!no_crypto)
-        {
-#if MESH_HAS_MBEDTLS
-            mbedtls_aes_context ctx;
-            mbedtls_aes_init(&ctx);
-            if (mbedtls_aes_setkey_enc(&ctx, key, key_len * 8) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "Failed to set AES key for routing reply");
-                return false;
-            }
-
-            uint8_t nonce[16] = {};
-            writeU64Le(nonce, (uint64_t)rsp_packet.id);
-            writeU32Le(nonce + 8, rsp_packet.from);
-
-            size_t nc_off = 0;
-            uint8_t stream_block[16] = {};
-            if (mbedtls_aes_crypt_ctr(&ctx, encrypted_len, &nc_off, nonce, stream_block, data_buf, encrypted) != 0)
-            {
-                mbedtls_aes_free(&ctx);
-                ESP_LOGE(TAG, "AES-CTR encrypt failed for routing reply");
-                return false;
-            }
-            mbedtls_aes_free(&ctx);
-#else
-            ESP_LOGE(TAG, "AES support not available for routing reply");
-            return false;
-#endif
-        }
-
-        // Build packet header
-        PacketHeader header = {};
-        header.to = rsp_packet.to;
-        header.from = rsp_packet.from;
-        header.id = rsp_packet.id;
-        header.channel = channel_hash;
-        header.next_hop = 0;
-        header.relay_node = (uint8_t)(rsp_packet.from & 0xFFu);
-        header.flags = (rsp_packet.hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
-                       ((rsp_packet.hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
-
-        // Build final radio packet
-        uint8_t radio_buf[MAX_LORA_PAYLOAD] = {};
-        memcpy(radio_buf, &header, sizeof(header));
-        memcpy(radio_buf + sizeof(header), encrypted, encrypted_len);
-        size_t radio_len = sizeof(header) + encrypted_len;
-
-        // Send with high priority (routing replies are time-sensitive)
-        if (_router.enqueueTxRaw(radio_buf, (uint8_t)radio_len, PacketPriority::ACK, meshtastic_PortNum_ROUTING_APP))
+        uint32_t pid = encryptAndSend(data_buf, data_stream.bytes_written, to, false,
+                                      hop_limit, PacketPriority::ACK, meshtastic_PortNum_ROUTING_APP);
+        if (pid)
         {
             ESP_LOGI(TAG, "Routing reply sent to 0x%08lX (error=%d)", (unsigned long)to, (int)error_code);
             return true;
         }
-        else
-        {
-            ESP_LOGW(TAG, "Failed to enqueue routing reply");
-            return false;
-        }
+        ESP_LOGW(TAG, "Failed to enqueue routing reply");
+        return false;
     }
 
     bool MeshService::sendAck(uint32_t to, uint32_t packet_id, uint8_t channel, uint8_t hop_limit)
