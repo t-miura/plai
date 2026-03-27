@@ -2132,11 +2132,25 @@ namespace lgfx
         } while (uniCode < 0x20 && *(++string));
         if (uniCode < 0x20) break;
       }
-      // temp workaround
-      if ((uniCode > 0xFFFF) || ((uniCode >= 0xFE00) && (uniCode < 0xFE10)))
+      if ((uniCode >= 0xFE00) && (uniCode < 0xFE10)) {
           uniCode = 0;
-      // if (!_font->updateFontMetric(&_font_metrics, uniCode)) continue;
-      _font->updateFontMetric(&_font_metrics, uniCode);
+      }
+      bool use_emoji = false;
+      if (uniCode > 0xFFFF) {
+          use_emoji = true;
+      } else if (!_font->updateFontMetric(&_font_metrics, uniCode) && uniCode != 0) {
+          use_emoji = true;
+      }
+      if (use_emoji) {
+          if (_emoji_draw_cb) {
+              _font_metrics.width     = _font_metrics.height;
+              _font_metrics.x_advance = _font_metrics.height;
+              _font_metrics.x_offset  = 0;
+          } else {
+              uniCode = 0;
+              _font->updateFontMetric(&_font_metrics, uniCode);
+          }
+      }
       if (left == 0 && right == 0 && _font_metrics.x_offset < 0) left = right = - ((_font_metrics.x_offset * sx) >> 16);
       int32_t sxadvance = (_font_metrics.x_advance * sx) >> 16;
       right = left + std::max<int>(sxadvance, ((_font_metrics.width * sx) >> 16) + ((_font_metrics.x_offset * sx) >> 16));
@@ -2178,12 +2192,25 @@ namespace lgfx
         } while (uniCode < 0x20 && *(++string));
         if (uniCode < 0x20) break;
       }
-      // temp workaround
-      if ((uniCode > 0xFFFF) || ((uniCode >= 0xFE00) && (uniCode < 0xFE10)))
+      if ((uniCode >= 0xFE00) && (uniCode < 0xFE10)) {
           uniCode = 0;
-
-      //if (!_font->updateFontMetric(&metrics, uniCode)) continue;
-      font->updateFontMetric(metrics, uniCode);
+      }
+      bool use_emoji = false;
+      if (uniCode > 0xFFFF) {
+          use_emoji = true;
+      } else if (!font->updateFontMetric(metrics, uniCode) && uniCode != 0) {
+          use_emoji = true;
+      }
+      if (use_emoji) {
+          if (_emoji_draw_cb) {
+              metrics->width     = metrics->height;
+              metrics->x_advance = metrics->height;
+              metrics->x_offset  = 0;
+          } else {
+              uniCode = 0;
+              font->updateFontMetric(metrics, uniCode);
+          }
+      }
       int32_t sxoffset = (metrics->x_offset * sx) >> 16;
       if (left == 0 && right == 0 && metrics->x_offset < 0) left = right = - sxoffset;
       int32_t sxadvance = (metrics->x_advance * sx) >> 16;
@@ -2245,11 +2272,26 @@ namespace lgfx
           } while (uniCode < 0x20 && *++tmp);
           if (uniCode < 0x20) break;
         }
-        // temp workaround
-        if ((uniCode > 0xFFFF) || ((uniCode >= 0xFE00) && (uniCode < 0xFE10)))
+        if ((uniCode >= 0xFE00) && (uniCode < 0xFE10)) {
             uniCode = 0;
+        }
         {
-          font->updateFontMetric(&metrics, uniCode);
+          bool use_emoji = false;
+          if (uniCode > 0xFFFF) {
+              use_emoji = true;
+          } else if (!font->updateFontMetric(&metrics, uniCode) && uniCode != 0) {
+              use_emoji = true;
+          }
+          if (use_emoji) {
+              if (_emoji_draw_cb) {
+                  metrics.width     = metrics.height;
+                  metrics.x_advance = metrics.height;
+                  metrics.x_offset  = 0;
+              } else {
+                  uniCode = 0;
+                  font->updateFontMetric(&metrics, uniCode);
+              }
+          }
           if (metrics.x_offset < 0)
           {
             int32_t sx = 65536 * _text_style.size_x;
@@ -2303,11 +2345,22 @@ namespace lgfx
           } while (uniCode < 0x20 && *++string);
           if (uniCode < 0x20) break;
         }
-        // temp workaround
-        if ((uniCode > 0xFFFF) || ((uniCode >= 0xFE00) && (uniCode < 0xFE10)))
+        if ((uniCode >= 0xFE00) && (uniCode < 0xFE10)) {
             uniCode = 0;
-
-        sumX += font->drawChar(this, x + sumX, y, uniCode, &_text_style, &metrics, dummy_filled_x);
+        }
+        {
+          bool drawn = false;
+          if (uniCode > 0xFFFF || (!font->updateFontMetric(&metrics, uniCode) && uniCode != 0)) {
+              if (_emoji_draw_cb) {
+                  int32_t ew = _emoji_draw_cb(this, x + sumX, y, uniCode, (metrics.height * sy) >> 16);
+                  if (ew > 0) { sumX += ew; drawn = true; }
+              }
+              if (!drawn) uniCode = 0;
+          }
+          if (!drawn) {
+              sumX += font->drawChar(this, x + sumX, y, uniCode, &_text_style, &metrics, dummy_filled_x);
+          }
+        }
       } while (*(++string));
     }
     this->endWrite();
@@ -2330,13 +2383,26 @@ namespace lgfx
         if (uniCode < 0x20)
             return 1;            
       }
-      // temp workaround
-      if ((uniCode > 0xFFFF) || ((uniCode >= 0xFE00) && (uniCode < 0xFE10)))
+      if ((uniCode >= 0xFE00) && (uniCode < 0xFE10)) {
           uniCode = 0;
-
-      //if (!(fpUpdateFontSize)(this, uniCode)) return 1;
-      //if (!_font->updateFontMetric(&_font_metrics, uniCode)) return 1;
-      _font->updateFontMetric(&_font_metrics, uniCode);
+      }
+      bool use_emoji = false;
+      if (uniCode > 0xFFFF) {
+          use_emoji = true;
+      } else if (!_font->updateFontMetric(&_font_metrics, uniCode) && uniCode != 0) {
+          use_emoji = true;
+      }
+      if (use_emoji) {
+          if (_emoji_draw_cb) {
+              _font_metrics.width     = _font_metrics.height;
+              _font_metrics.x_advance = _font_metrics.height;
+              _font_metrics.x_offset  = 0;
+          } else {
+              uniCode = 0;
+              use_emoji = false;
+              _font->updateFontMetric(&_font_metrics, uniCode);
+          }
+      }
 
       int32_t sx = 65536 * _text_style.size_x;
       int32_t xo = (_font_metrics.x_offset * sx) >> 16;
@@ -2384,11 +2450,23 @@ namespace lgfx
 
       if (y <= _clip_b + h)
       {
-        _cursor_x += _font->drawChar(this, _cursor_x, y, uniCode, &_text_style, &_font_metrics, _filled_x);
+        if (use_emoji) {
+          int32_t ew = _emoji_draw_cb(this, _cursor_x, y, uniCode, (_font_metrics.height * sy) >> 16);
+          if (ew > 0) {
+            _cursor_x += ew;
+          } else {
+            uniCode = 0;
+            _cursor_x += _font->drawChar(this, _cursor_x, y, uniCode, &_text_style, &_font_metrics, _filled_x);
+          }
+        } else {
+          _cursor_x += _font->drawChar(this, _cursor_x, y, uniCode, &_text_style, &_font_metrics, _filled_x);
+        }
       }
       else
       {
-        _font->updateFontMetric(&_font_metrics, uniCode);
+        if (!use_emoji) {
+          _font->updateFontMetric(&_font_metrics, uniCode);
+        }
         _cursor_x += (_font_metrics.x_advance * sx) >> 16;
       }
     }

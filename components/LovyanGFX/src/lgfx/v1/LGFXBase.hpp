@@ -52,6 +52,14 @@ namespace lgfx
 #define LGFX_PRINTF_ENABLED
 #endif
 
+  /// Callback for rendering emoji glyphs not present in the active font.
+  /// @param gfx   Display to draw on
+  /// @param x     X position
+  /// @param y     Y position
+  /// @param code  Unicode codepoint
+  /// @param font_height  Target height in pixels (already scaled by size_y)
+  /// @return pixel width actually drawn, or 0 if the glyph could not be rendered
+  typedef int32_t (*emoji_draw_cb_t)(LGFXBase* gfx, int32_t x, int32_t y, uint32_t code, int32_t font_height);
 
   class LGFXBase
 #if defined (ARDUINO)
@@ -678,6 +686,9 @@ namespace lgfx
     void setTextWrap( bool wrapX, bool wrapY = false) { _textwrap_x = wrapX; _textwrap_y = wrapY; }
     void setTextScroll(bool scroll) { _textscroll = scroll; if (_cursor_x < this->_sx) { _cursor_x = this->_sx; } if (_cursor_y < this->_sy) { _cursor_y = this->_sy; } }
 
+    void setEmojiCallback(emoji_draw_cb_t cb) { _emoji_draw_cb = cb; }
+    emoji_draw_cb_t getEmojiCallback(void) const { return _emoji_draw_cb; }
+
     template<typename T>
     void setTextColor(T color) {
       _text_style.fore_rgb888 = _text_style.back_rgb888 = this->hasPalette() ? color : convert_to_rgb888(color);
@@ -1034,6 +1045,7 @@ namespace lgfx
     TextStyle _text_style;
     FontMetrics _font_metrics = { 6, 6, 0, 8, 8, 0, 7 }; // Font0 default metric
     const IFont* _font = &fonts::Font0;
+    emoji_draw_cb_t _emoji_draw_cb = nullptr;
 
     std::shared_ptr<RunTimeFont> _runtime_font;  // run-time generated font
     std::shared_ptr<DataWrapper> _font_file;  // run-time font file
