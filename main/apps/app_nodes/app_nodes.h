@@ -48,7 +48,8 @@ namespace MOONCAKE::APPS
             TRACEROUTE_DETAIL,
             FAVORITE_LIST,
             IGNORE_LIST,
-            NEIGHBOR_LIST
+            NEIGHBOR_LIST,
+            QUICK_MESSAGES
         };
 
     private:
@@ -100,11 +101,17 @@ namespace MOONCAKE::APPS
             int nbr_scroll_offset;
             uint32_t nbr_source_node_id;
 
+            // Quick messages state
+            std::vector<std::string> qm_templates;
+            int qm_selected_index;
+            int qm_scroll_offset;
+
             // Sorting
             Mesh::SortOrder sort_order;
 
             // Animation contexts
             UTILS::SCROLL_TEXT::ScrollTextContext_t name_scroll_ctx;
+            UTILS::SCROLL_TEXT::ScrollTextContext_t qm_scroll_ctx;
             UTILS::HL_TEXT::HLTextContext_t hint_hl_ctx;
             std::string selected_display_name; // Cached display name for scrolling
 
@@ -132,6 +139,9 @@ namespace MOONCAKE::APPS
         bool _render_ignore_hint();
         bool _render_neighbor_list();
         bool _render_neighbor_hint();
+        bool _render_quick_messages();
+        bool _render_scrolling_qm(bool force = false);
+        bool _render_quick_messages_hint();
 
         // Input handling
         void _handle_node_list_input();
@@ -142,6 +152,7 @@ namespace MOONCAKE::APPS
         void _handle_favorite_list_input();
         void _handle_ignore_list_input();
         void _handle_neighbor_list_input();
+        void _handle_quick_messages_input();
 
         // Traceroute helpers
         void _start_traceroute();

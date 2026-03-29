@@ -31,7 +31,7 @@
 
 static const char* TAG = "APP_NODES";
 
-static const char* HINT_LIST = "[Fn][\u2191][\u2193][\u2190][\u2192][1..8.F.I.T.R.N.P][ENT][DEL][ESC]";
+static const char* HINT_LIST = "[Fn][\u2191][\u2193][\u2190][\u2192][1..8.F.I.T.R.N.P.Q][DEL][ESC]";
 static const char* HINT_LIST_FN = "[\u2191]HOME [\u2193]END [T][F][I][N][B]";
 static const char* HINT_DM = "[Fn] [^] [\u2191][\u2193][\u2190][\u2192] [I] [T] [ENTER][DEL] [ESC]";
 static const char* HINT_DM_FN = "[\u2191]HOME [\u2193]END";
@@ -44,6 +44,8 @@ static const char* HINT_IGN_LIST = "[Fn] [\u2191][\u2193][\u2190][\u2192] [DEL] 
 static const char* HINT_IGN_LIST_FN = "[\u2191]HOME [\u2193]END [DEL]CLEAR ALL";
 static const char* HINT_NBR_LIST = "[Fn] [\u2191][\u2193][\u2190][\u2192] [ESC] [ENTER]";
 static const char* HINT_NBR_LIST_FN = "[\u2191]HOME [\u2193]END";
+static const char* HINT_QM_LIST = "[Fn] [\u2191][\u2193][\u2190][\u2192] [A]DD [DEL] [ENTER] [ESC]";
+static const char* HINT_QM_LIST_FN = "[\u2191]HOME [\u2193]END";
 
 // Sort order selection dialog
 static const char* const sort_labels[] = {
@@ -170,12 +172,21 @@ void AppNodes::onCreate()
     _data.ign_selected_index = 0;
     _data.ign_scroll_offset = 0;
     _data.dm_ctrl = false;
+    _data.qm_selected_index = 0;
+    _data.qm_scroll_offset = 0;
 
     // Initialize scrolling text context for node names (FONT_12)
     scroll_text_init_ex(&_data.name_scroll_ctx,
                         _data.hal->canvas(),
                         LIST_MAX_DISPLAY_CHARS * 6, // FONT_12 width
                         12,                         // FONT_12 height
+                        LIST_SCROLL_SPEED,
+                        LIST_SCROLL_PAUSE,
+                        FONT_12);
+    scroll_text_init_ex(&_data.qm_scroll_ctx,
+                        _data.hal->canvas(),
+                        _data.hal->canvas()->width() - 8 - SCROLL_BAR_WIDTH,
+                        12,
                         LIST_SCROLL_SPEED,
                         LIST_SCROLL_PAUSE,
                         FONT_12);
@@ -365,6 +376,17 @@ void AppNodes::onRunning()
         }
         _handle_neighbor_list_input();
         break;
+
+    case ViewState::QUICK_MESSAGES:
+        updated |= _render_quick_messages();
+        updated |= _render_scrolling_qm(updated);
+        updated |= _render_quick_messages_hint();
+        if (updated)
+        {
+            _data.hal->canvas_update();
+        }
+        _handle_quick_messages_input();
+        break;
     }
 }
 
@@ -373,6 +395,7 @@ void AppNodes::onDestroy()
     s_saved_sort_order = _data.sort_order;
     s_saved_node_id = _data.list_selected_node_id;
     scroll_text_free(&_data.name_scroll_ctx);
+    scroll_text_free(&_data.qm_scroll_ctx);
     hl_text_free(&_data.hint_hl_ctx);
 }
 
@@ -2034,6 +2057,17 @@ void AppNodes::_handle_node_list_input()
                 }
                 _data.update_list = true;
             }
+        }
+        else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_Q))
+        {
+            _data.hal->playNextSound();
+            _data.hal->keyboard()->waitForRelease(KEY_NUM_Q);
+            _data.qm_templates = Mesh::load_message_templates();
+            _data.qm_selected_index = 0;
+            _data.qm_scroll_offset = 0;
+            scroll_text_reset(&_data.qm_scroll_ctx);
+            _data.view_state = ViewState::QUICK_MESSAGES;
+            _data.update_list = true;
         }
         else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_TAB))
         {
@@ -3745,6 +3779,281 @@ void AppNodes::_handle_neighbor_list_input()
 }
 
 // ========== End Neighbor List ==========
+
+// ========== Quick Messages ==========
+
+bool AppNodes::_render_quick_messages()
+{
+    if (!_data.update_list)
+        return false;
+    _data.update_list = false;
+
+    auto* canvas = _data.hal->canvas();
+    canvas->fillScreen(THEME_COLOR_BG);
+    canvas->setFont(FONT_12);
+
+    canvas->setTextColor(TFT_ORANGE, THEME_COLOR_BG);
+    canvas->drawString("<", 2, 0);
+    canvas->drawString("Quick messages", 14, 0);
+
+    int total = (int)_data.qm_templates.size();
+    std::string cnt_str = std::format("{}", total);
+    canvas->setTextColor(TFT_DARKGREY, THEME_COLOR_BG);
+    canvas->drawRightString(cnt_str.c_str(), canvas->width() - 2, 0);
+    canvas->drawFastHLine(0, 14, canvas->width(), THEME_COLOR_HEADER_LINE);
+
+    if (total == 0)
+    {
+        canvas->setTextColor(TFT_DARKGREY, THEME_COLOR_BG);
+        canvas->drawCenterString("<empty. press [A] to add>", canvas->width() / 2, canvas->height() / 2 - 6);
+        return true;
+    }
+
+    if (_data.qm_selected_index >= total)
+        _data.qm_selected_index = total - 1;
+    if (_data.qm_selected_index < 0)
+        _data.qm_selected_index = 0;
+
+    const int item_y_start = 14;
+    const int max_visible = (canvas->height() - item_y_start - 9) / (LIST_ITEM_HEIGHT + 1);
+
+    if (_data.qm_selected_index < _data.qm_scroll_offset)
+        _data.qm_scroll_offset = _data.qm_selected_index;
+    if (_data.qm_selected_index >= _data.qm_scroll_offset + max_visible)
+        _data.qm_scroll_offset = _data.qm_selected_index - max_visible + 1;
+
+    int vis_count = std::min(max_visible, total - _data.qm_scroll_offset);
+    int max_text_w = canvas->width() - 8 - SCROLL_BAR_WIDTH;
+
+    int y = item_y_start + 1;
+    for (int i = 0; i < vis_count; i++)
+    {
+        int idx = _data.qm_scroll_offset + i;
+        bool selected = (idx == _data.qm_selected_index);
+        const std::string& msg = _data.qm_templates[idx];
+
+        uint32_t bg = selected ? THEME_COLOR_BG_SELECTED : THEME_COLOR_BG;
+        uint32_t fg = selected ? THEME_COLOR_SELECTED : THEME_COLOR_UNSELECTED;
+
+        if (selected)
+            canvas->fillRect(2, y, canvas->width() - 4 - SCROLL_BAR_WIDTH, LIST_ITEM_HEIGHT, THEME_COLOR_BG_SELECTED);
+
+        if (!selected)
+        {
+            std::string display = msg;
+            if (canvas->textWidth(display.c_str()) > max_text_w)
+            {
+                size_t trunc = utf8_truncate_len(display.c_str(), (size_t)(max_text_w / 6));
+                display = display.substr(0, trunc) + ">";
+            }
+            canvas->setTextColor(fg, bg);
+            canvas->drawString(display.c_str(), 4, y);
+        }
+
+        y += LIST_ITEM_HEIGHT + 1;
+    }
+
+    UTILS::UI::draw_scrollbar(canvas,
+                              canvas->width() - SCROLL_BAR_WIDTH - 1,
+                              item_y_start,
+                              SCROLL_BAR_WIDTH,
+                              max_visible * (LIST_ITEM_HEIGHT + 1),
+                              total,
+                              max_visible,
+                              _data.qm_scroll_offset,
+                              SCROLLBAR_MIN_HEIGHT);
+
+    return true;
+}
+
+bool AppNodes::_render_scrolling_qm(bool force)
+{
+    if (_data.qm_templates.empty())
+        return false;
+
+    int relative_pos = _data.qm_selected_index - _data.qm_scroll_offset;
+    int y_offset = 14 + 1 + relative_pos * (LIST_ITEM_HEIGHT + 1);
+
+    return scroll_text_render(&_data.qm_scroll_ctx,
+                              _data.qm_templates[_data.qm_selected_index].c_str(),
+                              4,
+                              y_offset,
+                              THEME_COLOR_SELECTED,
+                              THEME_COLOR_BG_SELECTED,
+                              force);
+}
+
+bool AppNodes::_render_quick_messages_hint()
+{
+    static bool last_fn = false;
+    auto c = _data.hal->canvas();
+    auto keys_state = _data.hal->keyboard()->keysState();
+    if (last_fn != keys_state.fn)
+    {
+        last_fn = keys_state.fn;
+        c->fillRect(0, c->height() - 9, c->width(), 10, THEME_COLOR_BG);
+    }
+    return hl_text_render(&_data.hint_hl_ctx,
+                          last_fn ? HINT_QM_LIST_FN : HINT_QM_LIST,
+                          0,
+                          _data.hal->canvas()->height() - 9,
+                          TFT_DARKGREY,
+                          TFT_WHITE,
+                          THEME_COLOR_BG);
+}
+
+void AppNodes::_handle_quick_messages_input()
+{
+    _data.hal->keyboard()->updateKeyList();
+    _data.hal->keyboard()->updateKeysState();
+
+    if (_data.hal->keyboard()->isPressed())
+    {
+        uint32_t now = millis();
+        auto keys_state = _data.hal->keyboard()->keysState();
+        int total = (int)_data.qm_templates.size();
+
+        if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_ESC))
+        {
+            _data.hal->playNextSound();
+            _data.hal->keyboard()->waitForRelease(KEY_NUM_ESC);
+            _data.view_state = ViewState::NODE_LIST;
+            _data.update_list = true;
+        }
+        else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_A))
+        {
+            _data.hal->playNextSound();
+            _data.hal->keyboard()->waitForRelease(KEY_NUM_A);
+            std::string new_msg;
+            if (UTILS::UI::show_edit_string_dialog(_data.hal, "New quick message", new_msg, false, 200))
+            {
+                if (!new_msg.empty())
+                {
+                    _data.qm_templates.push_back(new_msg);
+                    Mesh::save_message_templates(_data.qm_templates);
+                    _data.qm_selected_index = (int)_data.qm_templates.size() - 1;
+                }
+                scroll_text_reset(&_data.qm_scroll_ctx);
+                _data.update_list = true;
+            }
+        }
+        else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_BACKSPACE))
+        {
+            _data.hal->playNextSound();
+            _data.hal->keyboard()->waitForRelease(KEY_NUM_BACKSPACE);
+            if (total > 0)
+            {
+                if (UTILS::UI::show_confirmation_dialog(_data.hal, "Quick messages", "Delete message?", "Delete", "Cancel"))
+                {
+                    _data.qm_templates.erase(_data.qm_templates.begin() + _data.qm_selected_index);
+                    Mesh::save_message_templates(_data.qm_templates);
+                    if (_data.qm_selected_index >= (int)_data.qm_templates.size() && _data.qm_selected_index > 0)
+                        _data.qm_selected_index--;
+                }
+                scroll_text_reset(&_data.qm_scroll_ctx);
+                _data.update_list = true;
+            }
+        }
+        else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_ENTER))
+        {
+            _data.hal->playNextSound();
+            _data.hal->keyboard()->waitForRelease(KEY_NUM_ENTER);
+            if (total > 0)
+            {
+                std::string msg = _data.qm_templates[_data.qm_selected_index];
+                if (UTILS::UI::show_edit_string_dialog(_data.hal, "Edit message", msg, false, 200))
+                {
+                    if (!msg.empty())
+                    {
+                        _data.qm_templates[_data.qm_selected_index] = msg;
+                        Mesh::save_message_templates(_data.qm_templates);
+                    }
+                }
+                scroll_text_reset(&_data.qm_scroll_ctx);
+                _data.update_list = true;
+            }
+        }
+        else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_DOWN))
+        {
+            if (key_repeat_check(is_repeat, next_fire_ts, now))
+            {
+                if (keys_state.fn)
+                {
+                    if (_data.qm_selected_index < total - 1)
+                    {
+                        _data.qm_selected_index = total - 1;
+                        _data.hal->playNextSound();
+                        scroll_text_reset(&_data.qm_scroll_ctx);
+                        _data.update_list = true;
+                    }
+                }
+                else if (_data.qm_selected_index < total - 1)
+                {
+                    _data.qm_selected_index++;
+                    _data.hal->playNextSound();
+                    scroll_text_reset(&_data.qm_scroll_ctx);
+                    _data.update_list = true;
+                }
+            }
+        }
+        else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_UP))
+        {
+            if (key_repeat_check(is_repeat, next_fire_ts, now))
+            {
+                if (keys_state.fn)
+                {
+                    if (_data.qm_selected_index > 0)
+                    {
+                        _data.qm_selected_index = 0;
+                        _data.qm_scroll_offset = 0;
+                        _data.hal->playNextSound();
+                        scroll_text_reset(&_data.qm_scroll_ctx);
+                        _data.update_list = true;
+                    }
+                }
+                else if (_data.qm_selected_index > 0)
+                {
+                    _data.qm_selected_index--;
+                    _data.hal->playNextSound();
+                    scroll_text_reset(&_data.qm_scroll_ctx);
+                    _data.update_list = true;
+                }
+            }
+        }
+        else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_RIGHT))
+        {
+            if (key_repeat_check(is_repeat, next_fire_ts, now))
+            {
+                int page = (_data.hal->canvas()->height() - 15 - 9) / (LIST_ITEM_HEIGHT + 1);
+                int last = total - 1;
+                if (_data.qm_selected_index < last)
+                {
+                    _data.qm_selected_index = std::min(_data.qm_selected_index + page, last);
+                    _data.hal->playNextSound();
+                    scroll_text_reset(&_data.qm_scroll_ctx);
+                    _data.update_list = true;
+                }
+            }
+        }
+        else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_LEFT))
+        {
+            if (key_repeat_check(is_repeat, next_fire_ts, now) && _data.qm_selected_index > 0)
+            {
+                int page = (_data.hal->canvas()->height() - 15 - 9) / (LIST_ITEM_HEIGHT + 1);
+                _data.qm_selected_index = std::max(_data.qm_selected_index - page, 0);
+                _data.hal->playNextSound();
+                scroll_text_reset(&_data.qm_scroll_ctx);
+                _data.update_list = true;
+            }
+        }
+    }
+    else
+    {
+        is_repeat = false;
+    }
+}
+
+// ========== End Quick Messages ==========
 
 void AppNodes::_send_message(const std::string& text)
 {

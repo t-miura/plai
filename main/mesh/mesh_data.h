@@ -527,6 +527,7 @@ namespace Mesh
     };
 
     std::vector<std::string> load_message_templates();
+    void save_message_templates(const std::vector<std::string>& templates);
 
 } // namespace Mesh
 

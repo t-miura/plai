@@ -1350,4 +1350,14 @@ namespace Mesh
         return templates.empty() ? defaults : templates;
     }
 
+    void save_message_templates(const std::vector<std::string>& templates)
+    {
+        FILE* f = fopen(TEMPLATES_FILE, "w");
+        if (!f)
+            return;
+        for (const auto& t : templates)
+            fprintf(f, "%s\n", t.c_str());
+        fclose(f);
+    }
+
 } // namespace Mesh
