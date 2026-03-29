@@ -1061,11 +1061,11 @@ bool AppChannels::_render_channel_chat()
                         {
                             if (msg.hops_away == 0)
                             {
-                                dt += std::format(" \U0001F3AF {:.1} dB", msg.rx_snr / 4.0f);
+                                dt += std::format(" \U0001F3AF{:.1f} dB", msg.rx_snr / 4.0f);
                             }
                             else
                             {
-                                dt += std::format(" {}\U0001F430", msg.hops_away);
+                                dt += std::format(" \U0001F430{}", msg.hops_away);
                             }
                         }
                         canvas->fillRoundRect(2, y + 1, canvas->textWidth(dt.c_str()) + 6, CHAT_ITEM_HEIGHT, 3, sender_bg);
