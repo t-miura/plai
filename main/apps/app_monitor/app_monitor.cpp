@@ -234,7 +234,7 @@ bool AppMonitor::_render_packet_list()
     int total = (int)log.size();
     if (total == 0)
     {
-        canvas->setTextColor(TFT_DARKGREY, THEME_COLOR_BG);
+        canvas->setTextColor(TFT_DARKGREY);
         canvas->drawCenterString("<no packets>", canvas->width() / 2, canvas->height() / 2 - 6);
         return true;
     }
@@ -275,7 +275,7 @@ bool AppMonitor::_render_packet_list()
         bool involves_us = pkt.is_tx ? (pkt.from == our_id) : (pkt.to == our_id || pkt.to == 0xFFFFFFFF);
         // Direction indicator (TX>/RX<)
         uint32_t direction_color = _direction_color(pkt);
-        canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color, bg);
+        canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color);
         canvas->drawString(_direction_str(pkt), 4, y + 1);
 
         // Port name with packet-ID color band
@@ -296,7 +296,7 @@ bool AppMonitor::_render_packet_list()
         }
         uint32_t id_bg = pkt.crc_error ? THEME_COLOR_SIGNAL_NONE : (pkt.port == 0 ? bg : packet_id_color(pkt.id));
         canvas->fillRect(27, y, 29, LIST_ITEM_HEIGHT, id_bg);
-        canvas->setTextColor(fg, id_bg);
+        canvas->setTextColor(fg);
         canvas->drawCenterString(pname, 28 + (28 - 2) / 2, y + 1);
 
         // From node (short hex)
@@ -325,11 +325,11 @@ bool AppMonitor::_render_packet_list()
         int pill_w = 4 * 6 + 4;
         int pill_x = 60;
         canvas->fillRoundRect(pill_x, y, pill_w, LIST_ITEM_HEIGHT, 4, nc);
-        canvas->setTextColor(ntc, nc);
+        canvas->setTextColor(ntc);
         canvas->drawCenterString(from_label.c_str(), pill_x + pill_w / 2, y + 1);
         // arrow: colored if packet involves us, orange otherwise
         uint32_t arrow_color = involves_us ? direction_color : lgfx::v1::convert_to_rgb888(TFT_ORANGE);
-        canvas->setTextColor(selected ? THEME_COLOR_SELECTED : arrow_color, bg);
+        canvas->setTextColor(selected ? THEME_COLOR_SELECTED : arrow_color);
         canvas->drawString("\u2192", pill_x + pill_w + 1, y + 1);
 
         // To node
@@ -357,7 +357,7 @@ bool AppMonitor::_render_packet_list()
         }
 
         canvas->fillRoundRect(pill2_x, y, pill_w, LIST_ITEM_HEIGHT, 4, nc2);
-        canvas->setTextColor(ntc2, nc2);
+        canvas->setTextColor(ntc2);
         canvas->drawCenterString(to_label.c_str(), pill2_x + pill_w / 2, y + 1);
 
         if (_data.packet_list_ctrl)
@@ -380,7 +380,7 @@ bool AppMonitor::_render_packet_list()
             const int gap_slot = 5 * 6;
             int relay_x = pill2_x + pill_w + 2;
 
-            canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color, bg);
+            canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color);
             canvas->drawRightString(gap_buf, rhs, y + 1);
 
             if (pkt.is_tx || pkt.relay_node == 0)
@@ -407,7 +407,7 @@ bool AppMonitor::_render_packet_list()
                     ntc_r = THEME_COLOR_SELECTED;
                 }
                 canvas->fillRoundRect(relay_x, y, pill_w_rel, LIST_ITEM_HEIGHT, 4, nc_r);
-                canvas->setTextColor(ntc_r, nc_r);
+                canvas->setTextColor(ntc_r);
                 canvas->drawCenterString(rel_label.c_str(), relay_x + pill_w_rel / 2, y + 1);
             }
 
@@ -419,7 +419,7 @@ bool AppMonitor::_render_packet_list()
             localtime_r(&pkt_epoch, &tm_local);
             char time_buf[10];
             snprintf(time_buf, sizeof(time_buf), "%02d:%02d:%02d", tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
-            canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color, bg);
+            canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color);
             canvas->drawRightString(time_buf, rhs - gap_slot, y + 1);
         }
         else
@@ -433,19 +433,19 @@ bool AppMonitor::_render_packet_list()
             }
             else
                 hop_str = std::format("[{:d}]", pkt.hop_limit);
-            canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color, bg);
+            canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color);
             canvas->drawString(hop_str.c_str(), pill2_x + pill_w + 2, y + 1);
 
             // channel (for broadcasts and traces)
             if (pkt.channel != 0)
             {
                 std::string channel_str = std::format("#{:02X}", pkt.channel);
-                canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color, bg);
+                canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color);
                 canvas->drawRightString(channel_str.c_str(), canvas->width() - 68, y + 1);
             }
             // Size
             std::string size_str = std::format("{:d}B", pkt.size);
-            canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color, bg);
+            canvas->setTextColor(selected ? THEME_COLOR_SELECTED : direction_color);
             canvas->drawRightString(size_str.c_str(), canvas->width() - 38, y + 1);
 
             // Signal: 2-line SNR/RSSI widget (RX only)
@@ -460,7 +460,7 @@ bool AppMonitor::_render_packet_list()
                                      : (pkt.snr > -13.0f)  ? THEME_COLOR_SIGNAL_FAIR
                                      : (pkt.snr >= -15.0f) ? THEME_COLOR_SIGNAL_BAD
                                                            : THEME_COLOR_SIGNAL_NONE;
-                canvas->setTextColor(selected ? THEME_COLOR_SELECTED : snr_color, bg);
+                canvas->setTextColor(selected ? THEME_COLOR_SELECTED : snr_color);
                 canvas->drawRightString(snr_buf, sig_x, y + 1);
 
                 char rssi_buf[10];
@@ -469,7 +469,7 @@ bool AppMonitor::_render_packet_list()
                                       : (pkt.rssi > -120) ? THEME_COLOR_SIGNAL_FAIR
                                       : (pkt.rssi > -126) ? THEME_COLOR_SIGNAL_BAD
                                                           : THEME_COLOR_SIGNAL_NONE;
-                canvas->setTextColor(selected ? THEME_COLOR_SELECTED : rssi_color, bg);
+                canvas->setTextColor(selected ? THEME_COLOR_SELECTED : rssi_color);
                 canvas->drawRightString(rssi_buf, sig_x, y + 8);
 
                 canvas->setFont(FONT_12);
@@ -521,12 +521,12 @@ bool AppMonitor::_render_packet_detail()
     const auto& pkt = _data.detail_pkt;
 
     // Header
-    canvas->setTextColor(TFT_ORANGE, THEME_COLOR_BG);
+    canvas->setTextColor(TFT_ORANGE);
     canvas->drawString("<", 2, 0);
     canvas->drawString("Packet detail", 14, 0);
 
     // Direction badge
-    canvas->setTextColor(_direction_color(pkt), THEME_COLOR_BG);
+    canvas->setTextColor(_direction_color(pkt));
     canvas->drawRightString(_direction_str(pkt), canvas->width() - 2, 0);
 
     canvas->drawFastHLine(0, 14, canvas->width(), THEME_COLOR_HEADER_LINE);
@@ -733,14 +733,14 @@ bool AppMonitor::_render_packet_detail()
         if (row.is_header)
         {
             canvas->drawFastHLine(0, y + row_height / 2, canvas->width(), THEME_COLOR_HEADER_LINE);
-            canvas->setTextColor(TFT_ORANGE, THEME_COLOR_BG);
+            canvas->setTextColor(TFT_ORANGE);
             canvas->drawString(row.label, 4, y + 1);
         }
         else
         {
-            canvas->setTextColor(TFT_DARKGREY, THEME_COLOR_BG);
+            canvas->setTextColor(TFT_DARKGREY);
             canvas->drawString(row.label, 4, y + 1);
-            canvas->setTextColor(row.value_color, THEME_COLOR_BG);
+            canvas->setTextColor(row.value_color);
             canvas->drawString(row.value, 60, y + 1);
         }
 
