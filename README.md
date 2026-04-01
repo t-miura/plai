@@ -195,13 +195,13 @@ Direct! 🎯
 **Zoom 4, style: topo**
 
 <p align="center">
-  <img src="pics/nodes_map_4.png" width="480" alt="Node Map Zoom 4">
+  <img src="pics/nodes_map_z4.png" width="480" alt="Node Map Zoom 4">
 </p>
 
 **Zoom 11, style: osm**
 
 <p align="center">
-  <img src="pics/nodes_map_11.png" width="480" alt="Node Map Zoom 11">
+  <img src="pics/nodes_map_z11.png" width="480" alt="Node Map Zoom 11">
 </p>
 
 Offline map powered by OpenStreetMap raster tiles stored on SD card. Node positions are rendered in real-time from the in-memory index — zero SD I/O for markers.
