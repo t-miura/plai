@@ -194,7 +194,7 @@ void AppStats::_render_tab_header(const char* title)
     constexpr int dot_r = 3;
     int dots_start_x = canvas->width() - TAB_COUNT * dot_spacing - 4;
     canvas->setFont(FONT_12);
-    canvas->setTextColor(TFT_ORANGE, THEME_COLOR_BG);
+    canvas->setTextColor(TFT_ORANGE);
     canvas->drawString(title, ICON_SIZE + 8, 1);
     for (int i = 0; i < TAB_COUNT; i++)
     {
@@ -213,9 +213,9 @@ void AppStats::_draw_row(int y, const char* label, const char* value, int value_
 {
     auto* canvas = _data.hal->canvas();
     canvas->setFont(FONT_12);
-    canvas->setTextColor(TFT_WHITE, THEME_COLOR_BG);
+    canvas->setTextColor(TFT_WHITE);
     canvas->drawString(label, 5, y);
-    canvas->setTextColor(value_color, THEME_COLOR_BG);
+    canvas->setTextColor(value_color);
     canvas->drawRightString(value, canvas->width() - 5, y);
 }
 
