@@ -277,6 +277,10 @@ python map/download_osm_tiles.py --lat 48.8566 --lon 2.3522 --radius 50 --global
 
 After downloading, copy the style folder (e.g. `map/dark/`) to `/sdcard/map/` on the device SD card, so tiles end up at `/sdcard/map/dark/{z}/{x}/{y}.jpg`. You can have multiple styles on the card and switch between them in **Settings → System → Map style**.
 
+**Prebuilt tiles in zoom 1-8 are available to download: [Google Drive](https://drive.google.com/drive/folders/1w3my-z-5raQ3HxWVPcNoBzR7aFre3rxt?usp=drive_link)**
+
+Download, unzip then can customize with your location with bigger zoom (12-15) using the script.
+
 ### Channels
 
 Multi-channel group chat supporting up to 8 channels.
