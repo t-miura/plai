@@ -973,7 +973,7 @@ namespace Mesh
         if (saveNodeToFile(full_node))
         {
             updateIndexEntry(full_node);
-            _dirty = true;
+            markDirty();
             ESP_LOGD(TAG, "%s node 0x%08lX", exists ? "Updated" : "Added", (unsigned long)node.num);
             return true;
         }
@@ -988,7 +988,7 @@ namespace Mesh
             Mesh::MeshDataStore::getInstance().removeNodeData(node_id);
             neighbors_delete(node_id);
             removeIndexEntry(node_id);
-            _dirty = true;
+            markDirty();
             ESP_LOGI(TAG, "Removed node 0x%08lX", (unsigned long)node_id);
             return true;
         }
@@ -1007,7 +1007,7 @@ namespace Mesh
 
         _index.clear();
         _sort_valid = false;
-        _dirty = true;
+        markDirty();
         ESP_LOGI(TAG, "Cleared all nodes");
     }
 
@@ -1031,7 +1031,7 @@ namespace Mesh
         if (saveNodeToFile(node))
         {
             updateIndexEntry(node);
-            _dirty = true;
+            markDirty();
             return true;
         }
         return false;
@@ -1057,7 +1057,7 @@ namespace Mesh
         if (saveNodeToFile(node))
         {
             updateIndexEntry(node);
-            _dirty = true;
+            markDirty();
             return true;
         }
         return false;
@@ -1081,7 +1081,7 @@ namespace Mesh
                 entry->is_favorite = favorite;
                 _sort_valid = false;
             }
-            _dirty = true;
+            markDirty();
             return true;
         }
         return false;
@@ -1246,7 +1246,7 @@ namespace Mesh
         }
         _channels[index] = channel;
         _channels[index].index = index;
-        _dirty = true;
+        markDirty();
         return true;
     }
 
@@ -1258,7 +1258,7 @@ namespace Mesh
         }
         _channels[index] = meshtastic_Channel_init_default;
         _greetings[index] = {};
-        _dirty = true;
+        markDirty();
         return true;
     }
 
