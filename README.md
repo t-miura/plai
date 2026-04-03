@@ -43,7 +43,7 @@ Full node management with up to 1000 nodes persisted on SD card.
   <img src="pics/nodes.png" width="480" alt="Node Detail">
 </p>
 <p align="center">
-  <img src="pics/nodes_list.png" width="480" alt="Node List">
+  <img src="pics/nodes_list1.png" width="480" alt="Node List">
 </p>
 <p align="center">
   <img src="pics/nodes_favorites.png" width="480" alt="Node Favorites List">
