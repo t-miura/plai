@@ -57,6 +57,7 @@ namespace MOONCAKE::APPS
         static constexpr int MAP_TILE_PX = 256;
         static constexpr int MAP_MIN_ZOOM = 1;
         static constexpr int MAP_MAX_ZOOM = 15;
+        static constexpr int MAP_DEFAULT_ZOOM = 10;
 
     private:
         struct

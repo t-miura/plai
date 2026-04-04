@@ -227,7 +227,7 @@ void AppNodes::onCreate()
     // Map view state
     _data.map_center_lat = 0;
     _data.map_center_lon = 0;
-    _data.map_zoom = 10;
+    _data.map_zoom = MAP_DEFAULT_ZOOM;
 
     // Initialize scrolling text context for node names (FONT_12)
     scroll_text_init_ex(&_data.name_scroll_ctx,
@@ -2222,7 +2222,7 @@ void AppNodes::_handle_node_list_input()
                 _data.selected_node_id = _data.selected_node.info.num;
                 _data.map_center_lat = 0;
                 _data.map_center_lon = 0;
-                _data.map_zoom = 7;
+                _data.map_zoom = MAP_DEFAULT_ZOOM;
 
                 {
                     std::string style = _data.hal->settings()->getString("system", "map_style");
@@ -2337,7 +2337,7 @@ void AppNodes::_handle_node_detail_input()
 
             _data.map_center_lat = 0;
             _data.map_center_lon = 0;
-            _data.map_zoom = 7;
+            _data.map_zoom = MAP_DEFAULT_ZOOM;
 
             {
                 std::string style = _data.hal->settings()->getString("system", "map_style");
@@ -4699,8 +4699,6 @@ bool AppNodes::_selected_node_valid()
     if (_data.total_node_count == 0)
         return _data.selected_node_valid = false;
     if (_data.list_selected_node_id != 0)
-        return _data.selected_node_valid =
-                   _data.hal->nodedb()->getNode(_data.list_selected_node_id, _data.selected_node);
-    return _data.selected_node_valid =
-               _data.hal->nodedb()->getNodeByIndex(_data.selected_index, _data.selected_node);
+        return _data.selected_node_valid = _data.hal->nodedb()->getNode(_data.list_selected_node_id, _data.selected_node);
+    return _data.selected_node_valid = _data.hal->nodedb()->getNodeByIndex(_data.selected_index, _data.selected_node);
 }
