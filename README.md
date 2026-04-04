@@ -48,9 +48,6 @@ Full node management with up to 1000 nodes persisted on SD card.
 <p align="center">
   <img src="pics/nodes_favorites.png" width="480" alt="Node Favorites List">
 </p>
-<p align="center">
-  <img src="pics/nodes_ignored.png" width="480" alt="Node Ignored List">
-</p>
 
 - Node list with signal strength, hops, battery, role, encryption indicators
 - **Remembers** last **sort order** and **selected node** across reboots
@@ -113,6 +110,10 @@ Dedicated view of all your favorite nodes, stored persistently on SD card (`favo
 #### Ignore list
 
 Manage ignored nodes whose traffic is filtered at the mesh layer. Packets from ignored nodes are dropped before processing.
+
+<p align="center">
+  <img src="pics/nodes_ignored.png" width="480" alt="Node Ignored List">
+</p>
 
 - **Open** — [Fn] + [I] from node list
 - **Add/remove** — [I] on a node in the main list toggles ignored status (shown in red)
