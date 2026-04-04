@@ -109,7 +109,7 @@ namespace UTILS
             if (title_fits)
             {
                 // draw title
-                hal->canvas()->setTextColor(title_color, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(title_color);
                 hal->canvas()->drawCenterString(title.c_str(), dialog_x + DIALOG_WIDTH / 2, dialog_y + 10);
             }
             else
@@ -124,7 +124,7 @@ namespace UTILS
             if (message_fits)
             {
                 // draw message
-                hal->canvas()->setTextColor(message_color, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(message_color);
                 hal->canvas()->drawCenterString(message.c_str(), dialog_x + DIALOG_WIDTH / 2, dialog_y + 10 + VERTICAL_SPACING);
             }
             else
@@ -141,7 +141,7 @@ namespace UTILS
             if (close_timeout_ms > 0)
             {
                 hal->canvas()->setFont(FONT_10);
-                hal->canvas()->setTextColor(TFT_DARKGREY, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(TFT_DARKGREY);
                 hal->canvas()->drawCenterString("[DEL] CANCEL", dialog_x + DIALOG_WIDTH / 2, dialog_y + DIALOG_HEIGHT - 10);
                 hal->canvas()->setFont(FONT_16);
             }
@@ -185,7 +185,7 @@ namespace UTILS
                 }
                 else if (close_timeout_ms > 0)
                 {
-                    hal->canvas()->setTextColor(message_color, THEME_COLOR_BG);
+                    hal->canvas()->setTextColor(message_color);
                     hal->canvas()->drawCenterString(
                         std::format("{} {} sec", message, (uint32_t)((close_timeout_ms - (now - start_time)) / 1000)).c_str(),
                         dialog_x + DIALOG_WIDTH / 2,
@@ -309,8 +309,7 @@ namespace UTILS
                             ->drawRoundRect(btn_x, buttons_y, BUTTON_WIDTH, BUTTON_HEIGHT, BUTTON_CORNER_RADIUS, TFT_WHITE);
 
                         // Draw button text
-                        hal->canvas()->setTextColor(is_selected ? TFT_BLACK : buttons[i].text_color,
-                                                    is_selected ? THEME_COLOR_BG_SELECTED : buttons[i].bg_color);
+                        hal->canvas()->setTextColor(is_selected ? TFT_BLACK : buttons[i].text_color);
                         hal->canvas()->drawCenterString(buttons[i].text.c_str(), btn_x + BUTTON_WIDTH / 2, buttons_y + 2);
                     }
 
@@ -390,7 +389,7 @@ namespace UTILS
             }
 
             // Draw title at top of dialog
-            hal->canvas()->setTextColor(TFT_CYAN, THEME_COLOR_BG);
+            hal->canvas()->setTextColor(TFT_CYAN);
             hal->canvas()->drawCenterString(display_title.c_str(), dialog_x + DIALOG_WIDTH / 2, dialog_y + 10);
 
             // Progress bar dimensions
@@ -409,22 +408,10 @@ namespace UTILS
                 {
                     hal->canvas()->fillRoundRect(bar_x, bar_y, fill_width, bar_h, 4, THEME_COLOR_BG_SELECTED);
                 }
-                // create sprite for transparent text
-                LGFX_Sprite* text = new LGFX_Sprite(hal->canvas());
-                if (text)
-                {
-                    text->createSprite(bar_w, bar_h);
-                    text->setEmojiCallback(hal->canvas()->getEmojiCallback());
-                    text->fillScreen(TFT_TRANSPARENT);
-                    // Draw percentage text centered in progress bar
-                    text->setTextColor(fill_width > bar_w / 2 ? TFT_BLACK : TFT_WHITE, TFT_TRANSPARENT);
-                    // + 1);
-                    text->setFont(FONT_16);
-                    text->drawCenterString(std::format("{}%", progress).c_str(), text->width() / 2, 1);
-                    text->pushSprite(hal->canvas(), bar_x, bar_y, TFT_TRANSPARENT);
-                    text->deleteSprite();
-                    delete text;
-                }
+                // Draw percentage text centered in progress bar
+                hal->canvas()->setTextColor(fill_width > bar_w / 2 ? TFT_BLACK : TFT_WHITE);
+                hal->canvas()->setFont(FONT_16);
+                hal->canvas()->drawCenterString(std::format("{}%", progress).c_str(), bar_x + bar_w / 2, bar_y + 1);
             }
             else
             {
@@ -456,7 +443,7 @@ namespace UTILS
                 }
             }
             // Draw status message below progress bar
-            hal->canvas()->setTextColor(TFT_LIGHTGREY, THEME_COLOR_BG);
+            hal->canvas()->setTextColor(TFT_LIGHTGREY);
             std::string status = message;
             if (hal->canvas()->textWidth(status.c_str()) > DIALOG_WIDTH - 20)
             {
@@ -507,7 +494,7 @@ namespace UTILS
                 hal->canvas()->fillScreen(THEME_COLOR_BG);
 
                 // Draw title
-                hal->canvas()->setTextColor(TFT_CYAN, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(TFT_CYAN);
                 hal->canvas()->setFont(FONT_16);
                 hal->canvas()->drawString(title.c_str(), 5, 5);
 
@@ -540,7 +527,7 @@ namespace UTILS
 
                 // Draw visible text
                 std::string visible_text = input.substr(scroll_offset, max_visible_chars);
-                hal->canvas()->setTextColor(TFT_WHITE, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(TFT_WHITE);
                 hal->canvas()->drawString(visible_text.c_str(), box_x + 5, box_y + 5);
 
                 // Draw cursor
@@ -552,7 +539,7 @@ namespace UTILS
 
                 // Draw min/max hint
                 hal->canvas()->setFont(FONT_10);
-                hal->canvas()->setTextColor(TFT_DARKGREY, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(TFT_DARKGREY);
                 hal->canvas()->drawString(std::format("Range: {} to {}", min_value, max_value).c_str(),
                                           box_x,
                                           box_y + box_h + 5);
@@ -756,7 +743,7 @@ namespace UTILS
                 hal->canvas()->fillScreen(THEME_COLOR_BG);
 
                 // Draw title
-                hal->canvas()->setTextColor(TFT_CYAN, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(TFT_CYAN);
                 hal->canvas()->setFont(FONT_16);
                 hal->canvas()->drawString(title.c_str(), 5, 5);
 
@@ -798,7 +785,7 @@ namespace UTILS
                 // Draw visible text
                 std::string display_text =
                     is_password ? std::string(visible_count, '*') : utf8_substr(input, scroll_offset, visible_count);
-                hal->canvas()->setTextColor(TFT_WHITE, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(TFT_WHITE);
                 hal->canvas()->drawString(display_text.c_str(), box_x + 5, box_y + 5);
 
                 // Draw cursor at measured pixel position
@@ -823,10 +810,10 @@ namespace UTILS
                 uint32_t mode_color = keys_state.fn      ? THEME_COLOR_KEYBOARD_FN
                                       : keys_state.shift ? layout.color_upper
                                                          : layout.color_lower;
-                hal->canvas()->setTextColor(mode_color, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(mode_color);
                 hal->canvas()->drawString(mode_label, box_x, box_y + box_h + 5);
                 // draw number of symbols
-                hal->canvas()->setTextColor(TFT_DARKGREY, THEME_COLOR_BG);
+                hal->canvas()->setTextColor(TFT_DARKGREY);
                 hal->canvas()->drawRightString(std::format("{} / {}", input.size(), max_length).c_str(),
                                                box_x + box_w - 2,
                                                box_y + box_h + 5);
@@ -860,11 +847,11 @@ namespace UTILS
                             //     continue;
 
                             hal->canvas()->setFont(FONT_10);
-                            hal->canvas()->setTextColor(TFT_WHITE, THEME_COLOR_BG);
+                            hal->canvas()->setTextColor(TFT_WHITE);
                             hal->canvas()->drawString(lat[idx], x, y);
 
                             hal->canvas()->setFont(FONT_12);
-                            hal->canvas()->setTextColor(TFT_ORANGE, THEME_COLOR_BG);
+                            hal->canvas()->setTextColor(THEME_COLOR_KEYBOARD_TEXT);
                             hal->canvas()->drawString(cyr[idx], x + 4, y + 1);
                         }
                     }
@@ -1075,7 +1062,7 @@ namespace UTILS
                     hal->canvas()->fillScreen(THEME_COLOR_BG);
 
                     // Draw title
-                    hal->canvas()->setTextColor(TFT_CYAN, THEME_COLOR_BG);
+                    hal->canvas()->setTextColor(TFT_CYAN);
                     hal->canvas()->setFont(FONT_16);
                     hal->canvas()->drawString(title.c_str(), 5, 0);
 
@@ -1091,11 +1078,11 @@ namespace UTILS
                                                     hal->canvas()->width() - 5 - scrollbar_width - 2 - 1,
                                                     line_height - 2,
                                                     THEME_COLOR_BG_SELECTED);
-                            hal->canvas()->setTextColor(THEME_COLOR_SELECTED, THEME_COLOR_BG_SELECTED);
+                            hal->canvas()->setTextColor(THEME_COLOR_SELECTED);
                         }
                         else
                         {
-                            hal->canvas()->setTextColor(THEME_COLOR_UNSELECTED, THEME_COLOR_BG);
+                            hal->canvas()->setTextColor(THEME_COLOR_UNSELECTED);
                         }
 
                         bool text_fits = hal->canvas()->textWidth(items[i]) <= text_area_width;
