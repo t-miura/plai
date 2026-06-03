@@ -472,6 +472,24 @@ void AppStats::_render_gps_info()
         snprintf(buf, sizeof(buf), "%lu", data.sentence_count);
         _add_row("NMEA Msgs", buf, TFT_DARKGREY);
     }
+
+    // Date/time + computed Unix time. A red date (year < 2020) or a zero Unix
+    // time indicates the module is not delivering a usable timestamp (e.g. GPS
+    // week-number rollover), which suppresses time sync and stamps broadcast
+    // positions with time=0.
+    snprintf(buf,
+             sizeof(buf),
+             "%04u-%02u-%02u %02u:%02u:%02u",
+             (unsigned)data.year,
+             (unsigned)data.month,
+             (unsigned)data.day,
+             (unsigned)data.hour,
+             (unsigned)data.minute,
+             (unsigned)data.second);
+    _add_row("UTC Date/Time", buf, data.year >= 2020 ? TFT_CYAN : TFT_RED);
+
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.time);
+    _add_row("Unix time", buf, data.time > 0 ? TFT_GREEN : TFT_RED);
 #else
     _add_row("GPS", "Not supported", TFT_DARKGREY);
 #endif
