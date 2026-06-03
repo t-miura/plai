@@ -1090,7 +1090,7 @@ namespace SETTINGS
         }
         for (const auto& [key, value] : existing_settings)
         {
-            outfile << key << "=" << value << "\n";
+            outfile << key << "=" << value << std::endl;
         }
         outfile.close();
         ESP_LOGI(TAG, "Settings successfully exported to %s", filename.c_str());
