@@ -84,7 +84,7 @@ namespace MOONCAKE::APPS
     {
         std::string getAppName() override { return "MONITOR"; }
         std::string getAppDesc() override { return "Radio packet monitor"; }
-        void* getAppIcon() override { return (void*)(new AppIcon_t(image_data_app_monitor, nullptr)); }
+        void* getAppIcon() override { static AppIcon_t icon(image_data_app_monitor, nullptr); return (void*)&icon; }
         void* newApp() override { return new AppMonitor; }
         void deleteApp(void* app) override { delete (AppMonitor*)app; }
     };

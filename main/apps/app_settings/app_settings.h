@@ -41,7 +41,7 @@ namespace MOONCAKE::APPS
     {
         std::string getAppName() override { return "SETTINGS"; }
         std::string getAppDesc() override { return "Configure system settings"; }
-        void* getAppIcon() override { return (void*)(new AppIcon_t(image_data_app_settings, nullptr)); }
+        void* getAppIcon() override { static AppIcon_t icon(image_data_app_settings, nullptr); return (void*)&icon; }
         void* newApp() override { return new AppSettings; }
         void deleteApp(void* app) override { delete (AppSettings*)app; }
     };
