@@ -1037,6 +1037,16 @@ namespace Mesh
         if (_gps && _gps_queue)
         {
             _gps->setDataCallback([this](const HAL::GpsData& data) { xQueueOverwrite(_gps_queue, &data); });
+
+            // Apply initial sleep state based on config
+            if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+            {
+                _gps->setSleep(true);
+            }
+            else
+            {
+                _gps->setSleep(false);
+            }
         }
     }
 
@@ -1182,11 +1192,24 @@ namespace Mesh
         }
 
         // Position configuration
+        bool position_mode_changed = (_config.position != config.position);
         _config.position = config.position;
         _config.fixed_latitude = config.fixed_latitude;
         _config.fixed_longitude = config.fixed_longitude;
         _config.fixed_altitude = config.fixed_altitude;
         _config.position_flags = config.position_flags;
+
+        if (position_mode_changed && _gps)
+        {
+            if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+            {
+                _gps->setSleep(true);
+            }
+            else
+            {
+                _gps->setSleep(false);
+            }
+        }
 
         // Neighbor info module
         _config.neighborinfo_enabled = config.neighborinfo_enabled;

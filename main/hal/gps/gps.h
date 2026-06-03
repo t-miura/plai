@@ -192,6 +192,17 @@ namespace HAL
         void setDataCallback(DataCallback cb);
 
         /**
+         * @brief Set GPS module sleep state (low power standby)
+         * @param sleep true to sleep, false to wake up
+         */
+        void setSleep(bool sleep);
+
+        /**
+         * @brief Check if GPS is in sleep mode
+         */
+        bool isSleeping() const { return _is_sleeping; }
+
+        /**
          * @brief Send a NMEA command to GPS module
          * @param cmd Command without $ prefix or *checksum suffix (e.g. "PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
          */
@@ -208,6 +219,8 @@ namespace HAL
         bool _initialized;
         TaskHandle_t _task_handle;
         volatile bool _task_running;
+        volatile bool _is_sleeping;
+        uint32_t _last_sleep_cmd_ms;
 
         // NMEA parser state
         char _nmea_buf[128]; // Current NMEA sentence buffer

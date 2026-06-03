@@ -25,7 +25,7 @@ namespace HAL
 
     GPS::GPS(int rx_pin, int tx_pin, int uart_num, int baud_rate)
         : _rx_pin(rx_pin), _tx_pin(tx_pin), _uart_num(uart_num), _baud_rate(baud_rate), _initialized(false),
-          _task_handle(nullptr), _task_running(false), _nmea_pos(0), _data{}
+          _task_handle(nullptr), _task_running(false), _is_sleeping(false), _last_sleep_cmd_ms(0), _nmea_pos(0), _data{}
     {
         memset(_nmea_buf, 0, sizeof(_nmea_buf));
     }
@@ -125,6 +125,39 @@ namespace HAL
 
     void GPS::setDataCallback(DataCallback cb) { _data_callback = std::move(cb); }
 
+    void GPS::setSleep(bool sleep)
+    {
+        if (!_initialized)
+        {
+            return;
+        }
+
+        if (sleep)
+        {
+            if (!_is_sleeping)
+            {
+                ESP_LOGI(TAG, "Putting GPS to sleep (max 65535s)");
+                sendCommand("PCAS12,65535");
+                _is_sleeping = true;
+                _last_sleep_cmd_ms = millis();
+            }
+        }
+        else
+        {
+            if (_is_sleeping)
+            {
+                ESP_LOGI(TAG, "Waking up GPS");
+                // Send dummy characters to wake up
+                const char* wake = "\r\n";
+                uart_write_bytes((uart_port_t)_uart_num, wake, 2);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                // Send 1s sleep command to force wake-up state transition
+                sendCommand("PCAS12,1");
+                _is_sleeping = false;
+            }
+        }
+    }
+
     GpsData GPS::getData() const
     {
         // Simple copy - GpsData is small and updated atomically per-field
@@ -185,6 +218,18 @@ namespace HAL
 
     void GPS::_process_uart()
     {
+        if (_is_sleeping)
+        {
+            // Periodic re-send of sleep command (every 10 minutes)
+            if (millis() - _last_sleep_cmd_ms > 600000)
+            {
+                sendCommand("PCAS12,65535");
+                _last_sleep_cmd_ms = millis();
+            }
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            return;
+        }
+
         uint8_t buf[128];
         int len = uart_read_bytes((uart_port_t)_uart_num, buf, sizeof(buf), pdMS_TO_TICKS(GPS_READ_TIMEOUT_MS));
 
