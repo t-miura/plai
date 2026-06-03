@@ -244,6 +244,7 @@ namespace HAL
         // Sentence handlers
         void _parse_gga(const char* sentence); // Fix data
         void _parse_rmc(const char* sentence); // Recommended minimum
+        void _parse_zda(const char* sentence); // Time and Date
 
         // NMEA field helpers
         static double _parse_coord(const char* field, char dir);

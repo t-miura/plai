@@ -1038,10 +1038,19 @@ namespace Mesh
         {
             _gps->setDataCallback([this](const HAL::GpsData& data) { xQueueOverwrite(_gps_queue, &data); });
 
-            // Apply initial sleep state based on config
+            // Apply initial sleep state based on config, but only if we already have valid time
+            // Otherwise, let it run briefly to bootstrap RTC
             if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
             {
-                _gps->setSleep(true);
+                if (_hal->isGPSAdjusted())
+                {
+                    _gps->setSleep(true);
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "Delaying GPS sleep to allow RTC bootstrap");
+                    _gps->setSleep(false);
+                }
             }
             else
             {
@@ -1052,8 +1061,12 @@ namespace Mesh
 
     void MeshService::_onGpsData(const HAL::GpsData& data)
     {
-        // blonk yellow led
-        _hal->led()->blink_once(HAL::Color(255, 255, 0), 100);
+        // blink yellow led only if we have a fix
+        if (data.has_fix)
+        {
+            _hal->led()->blink_once(HAL::Color(255, 255, 0), 100);
+        }
+
         if ((time_t)data.time <= BUILD_TIMESTAMP)
         {
             return;
@@ -1063,36 +1076,43 @@ namespace Mesh
         time_t drift = (time_t)data.time - sys_now;
         if (drift < 0)
             drift = -drift;
-        // check if gps has fix
-        if (data.has_fix)
+
+        // Sync time if drift is large, regardless of fix (e.g., ZDA RTC bootstrap)
+        if (!_hal->isGPSAdjusted() || drift > GPS_SIGNIFICANT_DRIFT_S)
         {
-            if (!_hal->isGPSAdjusted() || drift > GPS_SIGNIFICANT_DRIFT_S)
+            struct timeval tv = {.tv_sec = (time_t)data.time, .tv_usec = 0};
+            settimeofday(&tv, nullptr);
+            if (!_hal->isGPSAdjusted())
             {
-                struct timeval tv = {.tv_sec = (time_t)data.time, .tv_usec = 0};
-                settimeofday(&tv, nullptr);
-                if (!_hal->isGPSAdjusted())
+                _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
+                _hal->setGPSAdjusted(true);
+
+                // If we were delaying sleep for RTC bootstrap, apply it now
+                if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
                 {
-                    _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
-                    _hal->setGPSAdjusted(true);
+                    ESP_LOGI(TAG, "RTC bootstrap complete, applying delayed GPS sleep");
+                    _gps->setSleep(true);
                 }
-                // dump new system date abd time dd.MM.yyyy HH:mm:ss
-                struct tm timeinfo;
-                localtime_r(&tv.tv_sec, &timeinfo);
-                ESP_LOGI(TAG,
-                         "System time adjusted from GPS: %lu (drift: %lds) = %02d.%02d.%04d %02d:%02d:%02d",
-                         (unsigned long)data.time,
-                         (long)drift,
-                         timeinfo.tm_mday,
-                         timeinfo.tm_mon + 1,
-                         timeinfo.tm_year + 1900,
-                         timeinfo.tm_hour,
-                         timeinfo.tm_min,
-                         timeinfo.tm_sec);
             }
+            // dump new system date abd time dd.MM.yyyy HH:mm:ss
+            struct tm timeinfo;
+            localtime_r(&tv.tv_sec, &timeinfo);
+            ESP_LOGI(TAG,
+                     "System time adjusted from GPS: %lu (drift: %lds) = %02d.%02d.%04d %02d:%02d:%02d",
+                     (unsigned long)data.time,
+                     (long)drift,
+                     timeinfo.tm_mday,
+                     timeinfo.tm_mon + 1,
+                     timeinfo.tm_year + 1900,
+                     timeinfo.tm_hour,
+                     timeinfo.tm_min,
+                     timeinfo.tm_sec);
         }
-        else
+
+        // check if gps has fix for other purposes
+        if (!data.has_fix)
         {
-            _hal->setGPSAdjusted(false);
+            // _hal->setGPSAdjusted(false); // We don't reset this if we got time from RTC
         }
     }
 

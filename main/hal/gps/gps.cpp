@@ -95,6 +95,11 @@ namespace HAL
         }
 
         _initialized = true;
+
+        // Enable ZDA sentence for RTC bootstrap (GGA, GLL, GSA, GSV, RMC, VTG, ZDA, TXT, DTM, GPQ)
+        // 1=enable, 0=disable
+        sendCommand("PCAS03,1,1,1,1,1,1,1,0");
+
         ESP_LOGI(TAG, "GPS initialized successfully");
         return true;
     }
@@ -298,6 +303,10 @@ namespace HAL
         else if (strncmp(type_start, "RMC", 3) == 0)
         {
             _parse_rmc(_nmea_buf);
+        }
+        else if (strncmp(type_start, "ZDA", 3) == 0)
+        {
+            _parse_zda(_nmea_buf);
         }
 
         // Increment sentence counter (non-volatile, just diagnostic)
@@ -586,6 +595,54 @@ namespace HAL
             GpsData snapshot;
             memcpy(&snapshot, (const void*)&_data, sizeof(GpsData));
             _data_callback(snapshot);
+        }
+    }
+
+    // ========== ZDA: Time & Date ==========
+    // $GPZDA,hhmmss.ss,xx,xx,xxxx,xx,xx*cs
+    //   0: Time (hhmmss.ss)
+    //   1: Day (01-31)
+    //   2: Month (01-12)
+    //   3: Year
+    //   4: Local zone hours
+    //   5: Local zone minutes
+
+    void GPS::_parse_zda(const char* sentence)
+    {
+        ESP_LOGD(TAG, "Parsing ZDA sentence: %s", sentence);
+        const char* p = sentence;
+
+        p = _next_field(p); // field 0: time
+        if (!p) return;
+        if (*p && *p != ',')
+        {
+            _data.hour = (uint8_t)_parse_int(p, 2);
+            _data.minute = (uint8_t)_parse_int(p + 2, 2);
+            _data.second = (uint8_t)_parse_int(p + 4, 2);
+        }
+
+        p = _next_field(p); // field 1: day
+        if (!p) return;
+        if (*p && *p != ',') _data.day = (uint8_t)_parse_int(p, 2);
+
+        p = _next_field(p); // field 2: month
+        if (!p) return;
+        if (*p && *p != ',') _data.month = (uint8_t)_parse_int(p, 2);
+
+        p = _next_field(p); // field 3: year
+        if (!p) return;
+        if (*p && *p != ',') _data.year = (uint16_t)_parse_int(p, 4);
+
+        if (_data.year >= 2020 && _data.month > 0 && _data.day > 0)
+        {
+            _data.time = _to_unix_time(_data.year, _data.month, _data.day, _data.hour, _data.minute, _data.second);
+            // We can notify listeners even without a fix if we just got a valid RTC time
+            if (_data.time > 0 && _data_callback)
+            {
+                GpsData snapshot;
+                memcpy(&snapshot, (const void*)&_data, sizeof(GpsData));
+                _data_callback(snapshot);
+            }
         }
     }
 
