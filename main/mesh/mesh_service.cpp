@@ -1054,7 +1054,8 @@ namespace Mesh
     {
         // blonk yellow led
         _hal->led()->blink_once(HAL::Color(255, 255, 0), 100);
-        if ((time_t)data.time <= BUILD_TIMESTAMP)
+        // Allow up to 24 hours of timezone difference for build timestamp validation
+        if ((time_t)data.time <= (BUILD_TIMESTAMP - 86400))
         {
             return;
         }
@@ -2659,6 +2660,59 @@ namespace Mesh
                  (long)(position.has_altitude ? position.altitude : 0),
                  (unsigned long)position.sats_in_view,
                  (unsigned long)position.time);
+
+        // --- Mesh Time Sync ---
+        // If we don't have a valid local time (e.g. GPS is off/sleeping and RTC lost state),
+        // we can try to bootstrap it from incoming position packets on the primary channel.
+        // Allow up to 24 hours (86400s) of timezone difference in the build timestamp
+        if (position.time > (BUILD_TIMESTAMP - 86400))
+        {
+            // Only trust time from the primary channel
+            const meshtastic_Channel* ch = _nodedb ? _nodedb->getChannel(packet.channel) : nullptr;
+            if (ch && ch->role == meshtastic_Channel_Role_PRIMARY)
+            {
+                // Only trust time if the sender got it from a reliable source (GPS or internal RTC), not manual
+                // If it's UNSET (0), we'll still accept it if we have NO time at all (stuck in 1970) as a desperate fallback
+                time_t sys_now = 0;
+                time(&sys_now);
+                
+                if (position.location_source >= meshtastic_Position_LocSource_LOC_INTERNAL || sys_now < (BUILD_TIMESTAMP - 86400))
+                {
+                    time_t drift = (time_t)position.time - sys_now;
+                    if (drift < 0) drift = -drift;
+
+                    // Sync if we've drifted significantly or are stuck at epoch
+                    if (drift > GPS_SIGNIFICANT_DRIFT_S || sys_now < (BUILD_TIMESTAMP - 86400))
+                    {
+                        struct timeval tv = {.tv_sec = (time_t)position.time, .tv_usec = 0};
+                        settimeofday(&tv, nullptr);
+                        
+                        struct tm timeinfo;
+                        localtime_r(&tv.tv_sec, &timeinfo);
+                        ESP_LOGI(TAG,
+                                 "System time synced from Mesh (Node 0x%08lX): %02d.%02d.%04d %02d:%02d:%02d",
+                                 (unsigned long)packet.from,
+                                 timeinfo.tm_mday,
+                                 timeinfo.tm_mon + 1,
+                                 timeinfo.tm_year + 1900,
+                                 timeinfo.tm_hour,
+                                 timeinfo.tm_min,
+                                 timeinfo.tm_sec);
+                                 
+                        // Note: We deliberately do NOT call _hal->setGPSAdjusted(true) here
+                        // to avoid showing the satellite icon when we only have mesh time.
+                    }
+                }
+                else
+                {
+                    ESP_LOGD(TAG, "Ignoring mesh time sync: unreliable source %d", position.location_source);
+                }
+            }
+        }
+        else if (position.time > 0)
+        {
+            ESP_LOGW(TAG, "Ignoring mesh time sync: timestamp %lu is too old (build=%lu)", (unsigned long)position.time, (unsigned long)BUILD_TIMESTAMP);
+        }
 
         // Update node database with position
         if (_nodedb)
