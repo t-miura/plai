@@ -84,6 +84,8 @@ namespace SETTINGS
              "osm;dark;voyager;topo",
              "",
              "Offline map style (map folder on SD card)"},
+            {"sort_order", "Sort order", TYPE_NUMBER, "6", "6", "0", "8", "Default sort order for nodes list"},
+            {"map_zoom", "Map zoom", TYPE_NUMBER, "10", "10", "1", "15", "Default zoom level for map view"},
         };
 
         auto mesh_apply_cb = [this](SettingItem_t& item) { applyMeshConfig(item); };

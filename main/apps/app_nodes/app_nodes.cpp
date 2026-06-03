@@ -193,7 +193,6 @@ static RoleInfo _get_role_info(meshtastic_Config_DeviceConfig_Role role)
 static bool is_repeat = false;
 static uint32_t next_fire_ts = 0xFFFFFFFF;
 
-static Mesh::SortOrder s_saved_sort_order = Mesh::SortOrder::LAST_HEARD;
 static uint32_t s_saved_node_id = 0;
 
 using namespace MOONCAKE::APPS;
@@ -258,8 +257,12 @@ void AppNodes::onResume()
     _data.view_state = ViewState::NODE_LIST;
     _data.selected_index = 0;
     _data.scroll_offset = 0;
-    _data.sort_order = s_saved_sort_order;
+
+    // Load sort order and map zoom from settings
+    _data.sort_order = static_cast<Mesh::SortOrder>(_data.hal->settings()->getNumber("system", "sort_order"));
+    _data.map_zoom = _data.hal->settings()->getNumber("system", "map_zoom");
     _data.list_selected_node_id = s_saved_node_id;
+
     _data.update_list = true;
     _data.last_nodedb_change = 0;
     _data.last_msgstore_change = 0;
@@ -461,8 +464,13 @@ void AppNodes::onRunning()
 
 void AppNodes::onDestroy()
 {
-    s_saved_sort_order = _data.sort_order;
     s_saved_node_id = _data.list_selected_node_id;
+
+    // Save to settings
+    _data.hal->settings()->setNumber("system", "sort_order", static_cast<int32_t>(_data.sort_order));
+    _data.hal->settings()->setNumber("system", "map_zoom", _data.map_zoom);
+    _data.hal->settings()->saveAll();
+
     scroll_text_free(&_data.name_scroll_ctx);
     scroll_text_free(&_data.qm_scroll_ctx);
     hl_text_free(&_data.hint_hl_ctx);
@@ -1824,6 +1832,11 @@ void AppNodes::_apply_sort_order(Mesh::SortOrder new_order)
         _data.hal->nodedb()->setOurPosition(lat_i, lon_i);
     }
     _data.sort_order = new_order;
+
+    // Save sort order to settings
+    _data.hal->settings()->setNumber("system", "sort_order", static_cast<int32_t>(new_order));
+    _data.hal->settings()->saveAll();
+
     // Selection will be resolved from list_selected_node_id in _render_node_list()
     scroll_text_reset(&_data.name_scroll_ctx);
     _data.update_list = true;
@@ -4487,7 +4500,8 @@ void AppNodes::_handle_node_map_input()
             _data.map_style_idx = (_data.map_style_idx + 1) % MAP_STYLES_COUNT;
             const auto& s = MAP_STYLES[_data.map_style_idx];
             snprintf(_data.map_tile_dir, sizeof(_data.map_tile_dir), "%s/%s", MAP_BASE_DIR, s.name);
-            // _data.hal->settings()->setString("system", "map_style", s.name);
+            _data.hal->settings()->setString("system", "map_style", s.name);
+            _data.hal->settings()->saveAll();
             _data.update_list = true;
         }
         else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_ENTER))
@@ -4517,7 +4531,11 @@ void AppNodes::_handle_node_map_input()
                 else
                 {
                     if (_data.map_zoom < MAP_MAX_ZOOM)
+                    {
                         _data.map_zoom++;
+                        _data.hal->settings()->setNumber("system", "map_zoom", _data.map_zoom);
+                        _data.hal->settings()->saveAll();
+                    }
                 }
                 _data.update_list = true;
             }
@@ -4536,7 +4554,11 @@ void AppNodes::_handle_node_map_input()
                 else
                 {
                     if (_data.map_zoom > MAP_MIN_ZOOM)
+                    {
                         _data.map_zoom--;
+                        _data.hal->settings()->setNumber("system", "map_zoom", _data.map_zoom);
+                        _data.hal->settings()->saveAll();
+                    }
                 }
                 _data.update_list = true;
             }
