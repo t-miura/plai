@@ -82,8 +82,8 @@ bool SDCard::mount(bool format_if_mount_failed)
     slot_config.gpio_cs = PIN_NUM_CS;
     slot_config.host_id = (spi_host_device_t)host.slot;
 
-    // Set frequency to 10MHz for better stability
-    host.max_freq_khz = 10000;
+    // Set frequency to 20MHz
+    host.max_freq_khz = 20000;
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {.format_if_mount_failed = format_if_mount_failed,
                                                      .max_files = 5,
@@ -175,3 +175,4 @@ uint64_t SDCard::get_capacity()
     }
     return ((uint64_t)card->csd.capacity) * card->csd.sector_size;
 }
+
