@@ -94,12 +94,10 @@ void Launcher::_update_system_bar()
                 _data.hal->canvas_system_bar()->drawString(std::format("{:07.3f}", freq).c_str(), x, y + 2);
             }
 
-            // Bottom line: preset short name (only when use_preset is on)
-            if (config.lora_config.use_preset)
-            {
-                const char* preset_name = getModemPresetShortName(config.lora_config.modem_preset);
-                _data.hal->canvas_system_bar()->drawCenterString(preset_name, x + 15, y + 8);
-            }
+            // Bottom line: preset short name, or "Cust" for a custom (manual) modem config
+            const char* preset_name =
+                config.lora_config.use_preset ? getModemPresetShortName(config.lora_config.modem_preset) : "Cust";
+            _data.hal->canvas_system_bar()->drawCenterString(preset_name, x + 15, y + 8);
 
             x += 30 + PADDING_X;
 

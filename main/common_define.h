@@ -53,7 +53,14 @@ namespace
 
 // Compile-time Unix timestamp of this firmware build.
 // GPS fixes reporting a time before this value are considered invalid.
+// NOTE: __DATE__/__TIME__ are the LOCAL build-machine clock, while GPS time is
+// UTC. Comparisons must allow for the timezone offset (see BUILD_TIME_SLACK_S).
 #define BUILD_TIMESTAMP (_buildTimestamp())
+
+// Slack subtracted from BUILD_TIMESTAMP when validating GPS time. It absorbs the
+// local-vs-UTC offset (max +-14h) plus build/flash/test latency, so a valid UTC
+// fix taken shortly after building in a positive-offset timezone is not rejected.
+static constexpr time_t BUILD_TIME_SLACK_S = 24 * 60 * 60; // 1 day
 
 // Minimum GPS-vs-system-clock drift (seconds) that triggers a time adjustment.
 static constexpr time_t GPS_SIGNIFICANT_DRIFT_S = 60;

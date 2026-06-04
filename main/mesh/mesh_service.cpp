@@ -1066,8 +1066,9 @@ namespace Mesh
     {
         // blonk yellow led
         _hal->led()->blink_once(HAL::Color(255, 255, 0), 100);
-        // Allow up to 24 hours of timezone difference for build timestamp validation
-        if ((time_t)data.time <= (BUILD_TIMESTAMP - 86400))
+        // BUILD_TIMESTAMP is derived from the local build clock; GPS time is UTC.
+        // Allow timezone/build-latency slack so valid UTC fixes are not rejected.
+        if ((time_t)data.time <= BUILD_TIMESTAMP - BUILD_TIME_SLACK_S)
         {
             return;
         }
@@ -4273,8 +4274,20 @@ namespace Mesh
 
         // LoRa
         config.lora_config.region = Mesh::MeshService::regionCodeFromName(_settings->getString("lora", "region"));
-        config.lora_config.modem_preset = modemPresetFromName(_settings->getString("lora", "modem_preset"));
-        config.lora_config.use_preset = true; // always using preset
+        const std::string modem_preset_name = _settings->getString("lora", "modem_preset");
+        if (modem_preset_name == "Custom")
+        {
+            // Custom preset: drive the radio from the manual bandwidth/coding rate/spreading factor settings
+            config.lora_config.use_preset = false;
+            config.lora_config.bandwidth = _settings->getNumber("lora", "bandwidth");
+            config.lora_config.coding_rate = _settings->getNumber("lora", "coding_rate");
+            config.lora_config.spread_factor = _settings->getNumber("lora", "spread_factor");
+        }
+        else
+        {
+            config.lora_config.modem_preset = modemPresetFromName(modem_preset_name);
+            config.lora_config.use_preset = true;
+        }
         config.lora_config.tx_power = _settings->getNumber("lora", "tx_power");
         config.lora_config.override_duty_cycle = _settings->getBool("lora", "duty_ovr");
         config.lora_config.sx126x_rx_boosted_gain = _settings->getBool("lora", "rx_boost");

@@ -10,6 +10,11 @@
 #include "common_define.h"
 #include "draw_helper.h"
 #include "key_repeat.h"
+#include <cstring>
+
+// True if a C string pointer is null or empty (replacement for std::string::empty()
+// now that SettingItem_t immutable fields are const char*).
+static inline bool cstr_empty(const char* s) { return s == nullptr || s[0] == '\0'; }
 
 static const char* TAG = "SETTINGS_SCREEN";
 static const char* HINT_ITEMS = "[\u2191][\u2193][\u2190][\u2192] [ESC] [ENTER]";
@@ -38,6 +43,30 @@ namespace UTILS
     {
         namespace SETTINGS_SCREEN
         {
+            // Determine whether an item should currently be shown, based on its optional
+            // conditional-visibility rule (visible_when_key / visible_when_value).
+            static bool is_item_visible(HAL::Hal* hal,
+                                        const SETTINGS::SettingGroup_t& group,
+                                        const SETTINGS::SettingItem_t& item)
+            {
+                if (cstr_empty(item.visible_when_key))
+                    return true;
+                return hal->settings()->getString(group.nvs_namespace, item.visible_when_key) == item.visible_when_value;
+            }
+
+            // Build the list of currently visible items (pointers into the live group.items),
+            // so rendering and navigation share the exact same indexing.
+            static std::vector<SETTINGS::SettingItem_t*> get_visible_items(HAL::Hal* hal, SETTINGS::SettingGroup_t& group)
+            {
+                std::vector<SETTINGS::SettingItem_t*> visible;
+                visible.reserve(group.items.size());
+                for (auto& item : group.items)
+                {
+                    if (is_item_visible(hal, group, item))
+                        visible.push_back(&item);
+                }
+                return visible;
+            }
             bool render_groups(HAL::Hal* hal, const std::vector<SETTINGS::SettingGroup_t>& groups, HLTextContext_t* hint_ctx)
             {
                 if (!need_render)
@@ -101,9 +130,11 @@ namespace UTILS
                 int line_height = hal->canvas()->fontHeight(FONT_16) + 2 + 1;
                 int max_visible_lines = (hal->canvas()->height() - y_offset - HINT_HEIGHT) / line_height;
 
-                for (size_t i = scroll_offset; i < group.items.size() && items_drawn < max_visible_lines; i++)
+                auto visible_items = get_visible_items(hal, group);
+
+                for (size_t i = scroll_offset; i < visible_items.size() && items_drawn < max_visible_lines; i++)
                 {
-                    auto& item = group.items[i];
+                    auto& item = *visible_items[i];
 
                     if (i == selected_item)
                     {
@@ -116,7 +147,7 @@ namespace UTILS
                     }
 
                     // Draw label
-                    hal->canvas()->drawString(item.label.c_str(), 10, y_offset + 1);
+                    hal->canvas()->drawString(item.label, 10, y_offset + 1);
 
                     // Get current value from settings
                     switch (item.type)
@@ -134,10 +165,10 @@ namespace UTILS
                         item.value = hal->settings()->getString(group.nvs_namespace, item.key);
                         break;
                     }
-                    std::string display_value = item.key == "pass" ? "******" : item.value;
+                    std::string display_value = strcmp(item.key, "pass") == 0 ? "******" : item.value;
 
                     int value_width = hal->canvas()->textWidth(display_value.c_str());
-                    int max_value_width = max_width - hal->canvas()->textWidth(item.label.c_str()) - 20;
+                    int max_value_width = max_width - hal->canvas()->textWidth(item.label) - 20;
 
                     if (value_width > max_value_width)
                     {
@@ -165,7 +196,7 @@ namespace UTILS
                                           ITEMS_Y_OFFSET,
                                           6,
                                           line_height * max_visible_lines,
-                                          (int)group.items.size(),
+                                          (int)visible_items.size(),
                                           max_visible_lines,
                                           scroll_offset);
 
@@ -183,7 +214,22 @@ namespace UTILS
                     return false;
                 }
 
-                std::string desc = group.items[selected_item].hint;
+                // Resolve the selected item against the currently visible items so the
+                // description matches what is actually highlighted on screen.
+                std::string desc;
+                int visible_index = 0;
+                for (const auto& item : group.items)
+                {
+                    if (!cstr_empty(item.visible_when_key) &&
+                        hal->settings()->getString(group.nvs_namespace, item.visible_when_key) != item.visible_when_value)
+                        continue;
+                    if (visible_index == selected_item)
+                    {
+                        desc = item.hint;
+                        break;
+                    }
+                    visible_index++;
+                }
                 // No info, use current desc
                 if (desc.length() == 0)
                 {
@@ -338,6 +384,12 @@ namespace UTILS
                 // int y_offset = ITEMS_Y_OFFSET;
                 int max_visible_lines = (hal->canvas()->height() - ITEMS_Y_OFFSET - HINT_HEIGHT) / line_height;
 
+                auto visible_items = get_visible_items(hal, group);
+                // Keep selection within the currently visible range (the list can shrink/grow
+                // when a controlling setting like the modem preset changes).
+                if (selected_item > (int)visible_items.size() - 1)
+                    selected_item = std::max(0, (int)visible_items.size() - 1);
+
                 hal->keyboard()->updateKeyList();
                 hal->keyboard()->updateKeysState();
 
@@ -349,7 +401,7 @@ namespace UTILS
                     {
                         if (key_repeat_check(is_repeat, next_fire_ts, now))
                         {
-                            if (selected_item < group.items.size() - 1)
+                            if (selected_item < (int)visible_items.size() - 1)
                             {
                                 hal->playNextSound();
                                 selected_item++;
@@ -396,14 +448,14 @@ namespace UTILS
                     {
                         if (key_repeat_check(is_repeat, next_fire_ts, now))
                         {
-                            if (selected_item < group.items.size() - 1)
+                            if (selected_item < (int)visible_items.size() - 1)
                             {
                                 hal->playNextSound();
                                 // Jump down by visible_items count (page down)
                                 int jump = max_visible_lines;
-                                selected_item = std::min((int)group.items.size() - 1, selected_item + jump);
+                                selected_item = std::min((int)visible_items.size() - 1, selected_item + jump);
                                 scroll_offset =
-                                    std::min(std::max(0, (int)group.items.size() - max_visible_lines), selected_item);
+                                    std::min(std::max(0, (int)visible_items.size() - max_visible_lines), selected_item);
                                 selection_changed = true;
                             }
                         }
@@ -437,7 +489,9 @@ namespace UTILS
                         hal->playNextSound();
                         hal->keyboard()->waitForRelease(KEY_NUM_ENTER);
 
-                        auto& item = group.items[selected_item];
+                        if (visible_items.empty())
+                            return selection_changed;
+                        auto& item = *visible_items[selected_item];
 
                         if (item.type == SETTINGS::TYPE_NONE)
                         {
@@ -559,8 +613,8 @@ namespace UTILS
                 {
                     // Edit number using dialog
                     int value = std::stoi(item.value);
-                    int min_value = item.min_val.empty() ? 0 : std::stoi(item.min_val);
-                    int max_value = item.max_val.empty() ? 999 : std::stoi(item.max_val);
+                    int min_value = cstr_empty(item.min_val) ? 0 : atoi(item.min_val);
+                    int max_value = cstr_empty(item.max_val) ? 999 : atoi(item.max_val);
 
                     if (UTILS::UI::show_edit_number_dialog(hal, item.label, value, min_value, max_value))
                     {
@@ -573,7 +627,7 @@ namespace UTILS
                 case SETTINGS::TYPE_STRING:
                 {
                     // Special handling for specific settings
-                    if (!item.min_val.empty() && !hal->keyboard()->keysState().fn)
+                    if (!cstr_empty(item.min_val) && !hal->keyboard()->keysState().fn)
                     {
                         // draw list selection dialog
                         std::vector<std::string> options;
@@ -604,7 +658,8 @@ namespace UTILS
                         }
                     }
 #if HAL_USE_WIFI
-                    else if (group.nvs_namespace == "wifi" && item.key == "ssid" && !hal->keyboard()->keysState().fn)
+                    else if (group.nvs_namespace == "wifi" && strcmp(item.key, "ssid") == 0 &&
+                             !hal->keyboard()->keysState().fn)
                     {
                         // Show scanning dialog
                         UTILS::UI::show_progress(hal, "Scanning WiFi", -1, "Please wait");
@@ -639,11 +694,11 @@ namespace UTILS
                     {
                         std::string value = item.value;
                         int max_length = 50;
-                        if (!item.max_val.empty())
+                        if (!cstr_empty(item.max_val))
                         {
-                            max_length = std::stoi(item.max_val);
+                            max_length = atoi(item.max_val);
                         }
-                        bool is_password = (item.key == "pass");
+                        bool is_password = (strcmp(item.key, "pass") == 0);
                         if (UTILS::UI::show_edit_string_dialog(hal, item.label, value, is_password, max_length))
                         {
                             item.value = value;
@@ -680,17 +735,17 @@ namespace UTILS
 #endif
                         if (group.nvs_namespace == "system")
                     {
-                        if (item.key == "brightness")
+                        if (strcmp(item.key, "brightness") == 0)
                         {
                             hal->display()->setBrightness(std::stoi(item.value));
                             // handled in launcher
                         }
-                        else if (item.key == "volume")
+                        else if (strcmp(item.key, "volume") == 0)
                         {
                             // hal->speaker()->setVolume(std::stoi(item.value));
                             // handled in launcher
                         }
-                        else if (item.key == "use_led")
+                        else if (strcmp(item.key, "use_led") == 0)
                         {
                             if (item.value == "true")
                             {
@@ -733,7 +788,7 @@ namespace UTILS
 
                 if (!success)
                 {
-                    ESP_LOGE(TAG, "Failed to save setting %s.%s", group.nvs_namespace.c_str(), item.key.c_str());
+                    ESP_LOGE(TAG, "Failed to save setting %s.%s", group.nvs_namespace.c_str(), item.key);
                     UTILS::UI::show_error_dialog(hal, "Save Error", "Failed to save setting", "OK");
                 }
             }
