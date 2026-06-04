@@ -583,9 +583,21 @@ namespace Mesh
             }
             else if (now - _last_tx_start_ms > TX_WATCHDOG_TIMEOUT_MS)
             {
-                ESP_LOGW(TAG, "TX watchdog fired, forcing RX restart (%lu - %lu)", now, _last_tx_start_ms);
+                ESP_LOGW(TAG, "TX watchdog fired, resetting and reinitializing radio (%lu - %lu)", now, _last_tx_start_ms);
                 _tx_in_progress = false;
-                _radio->startReceive(0);
+                _cad_in_progress = false;
+                _radio->deinit();
+                if (_radio->init())
+                {
+                    applyModemConfig();
+                    _radio->setEventCallback([this](HAL::RadioEvent event) { onRadioEvent(event); });
+                    _radio->startReceive(0);
+                    ESP_LOGI(TAG, "Radio successfully recovered and restarted");
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Failed to reinitialize radio after watchdog trigger");
+                }
             }
         }
 
