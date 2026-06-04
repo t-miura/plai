@@ -433,6 +433,7 @@ namespace Mesh
     MeshService::MeshService(HAL::Hal* hal)
         : _my_region(nullptr), _bw(250.0f), _sf(11), _cr(5), _saved_freq(0.0f), _saved_channel_num(0), _radio(nullptr),
           _gps(nullptr), _gps_queue(nullptr), _nodedb(nullptr), _router(), _config(), _state(MeshState::UNINITIALIZED),
+          _gps_sleep_delay_active(false), _gps_sleep_delay_start_ms(0), _time_sync_sound_played(false),
           _message_callback(nullptr), _battery_callback(nullptr), _fromradio_state(FromRadioState::IDLE),
           _fromradio_config_id(0), _fromradio_node_index(0), _fromradio_channel_index(0), _last_nodeinfo_broadcast_ms(0),
           _force_nodeinfo_broadcast(false), _last_neighborinfo_broadcast_ms(0), _last_position_broadcast_ms(0),
@@ -562,6 +563,32 @@ namespace Mesh
         if (_gps_queue && xQueueReceive(_gps_queue, &gps_snapshot, 0) == pdTRUE)
         {
             _onGpsData(gps_snapshot);
+        }
+
+        // Handle GPS sleep delay timeout for RTC bootstrap
+        if (_gps_sleep_delay_active && _gps)
+        {
+            time_t sys_now = 0;
+            time(&sys_now);
+            if (sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S))
+            {
+                // In case time got synchronized via Mesh or other source in the meantime
+                if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+                {
+                    ESP_LOGI(TAG, "System time is valid, putting GPS to sleep");
+                    _gps->setSleep(true);
+                }
+                _gps_sleep_delay_active = false;
+            }
+            else if (millis() - _gps_sleep_delay_start_ms > 30000)
+            {
+                if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+                {
+                    ESP_LOGW(TAG, "GPS sleep delay timed out without bootstrap, putting GPS to sleep");
+                    _gps->setSleep(true);
+                }
+                _gps_sleep_delay_active = false;
+            }
         }
 
         // Process radio events
@@ -1050,63 +1077,115 @@ namespace Mesh
         {
             _gps->setDataCallback([this](const HAL::GpsData& data) { xQueueOverwrite(_gps_queue, &data); });
 
-            // Apply initial sleep state based on config
+            // Apply initial sleep state based on config, but keep GPS awake
+            // on boot to bootstrap system time if not already done.
             if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
             {
-                _gps->setSleep(true);
+                time_t sys_now = 0;
+                time(&sys_now);
+                if (_hal->isGPSAdjusted() || sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S))
+                {
+                    _gps->setSleep(true);
+                    _gps_sleep_delay_active = false;
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "Delaying GPS sleep to allow RTC bootstrap");
+                    _gps->setSleep(false);
+                    _gps_sleep_delay_active = true;
+                    _gps_sleep_delay_start_ms = millis();
+                }
             }
             else
             {
                 _gps->setSleep(false);
+                _gps_sleep_delay_active = false;
             }
         }
     }
 
     void MeshService::_onGpsData(const HAL::GpsData& data)
     {
-        // blonk yellow led
-        _hal->led()->blink_once(HAL::Color(255, 255, 0), 100);
+        // blink yellow led only if we have a fix
+        if (data.has_fix)
+        {
+            _hal->led()->blink_once(HAL::Color(255, 255, 0), 100);
+        }
+
+        time_t sys_now = 0;
+        time(&sys_now);
+
+        ESP_LOGD("GPS_SYNC", "_onGpsData: time=%lu, has_fix=%d, sys_now=%lu, BUILD_TIMESTAMP=%lu, slack=%lu, threshold=%lu",
+                 (unsigned long)data.time, data.has_fix, (unsigned long)sys_now,
+                 (unsigned long)BUILD_TIMESTAMP, (unsigned long)BUILD_TIME_SLACK_S,
+                 (unsigned long)(BUILD_TIMESTAMP - BUILD_TIME_SLACK_S));
+
         // BUILD_TIMESTAMP is derived from the local build clock; GPS time is UTC.
         // Allow timezone/build-latency slack so valid UTC fixes are not rejected.
         if ((time_t)data.time <= BUILD_TIMESTAMP - BUILD_TIME_SLACK_S)
         {
+            ESP_LOGD("GPS_SYNC", "Rejected GPS time: %lu is older than/equal to threshold %lu",
+                     (unsigned long)data.time, (unsigned long)(BUILD_TIMESTAMP - BUILD_TIME_SLACK_S));
             return;
         }
-        time_t sys_now = 0;
-        time(&sys_now);
+
+        bool is_sys_time_valid = (sys_now > BUILD_TIMESTAMP - BUILD_TIME_SLACK_S);
+
         time_t drift = (time_t)data.time - sys_now;
         if (drift < 0)
             drift = -drift;
-        // check if gps has fix
-        if (data.has_fix)
+
+        // We sync if:
+        // 1. System clock is currently invalid/unset (RTC bootstrap)
+        // 2. We have a live GPS fix and the drift is significant
+        bool should_sync = !is_sys_time_valid || (data.has_fix && (drift > GPS_SIGNIFICANT_DRIFT_S));
+
+        ESP_LOGD("GPS_SYNC", "is_sys_time_valid=%d, drift=%ld, should_sync=%d",
+                 is_sys_time_valid, (long)drift, should_sync);
+
+        if (should_sync)
         {
-            if (!_hal->isGPSAdjusted() || drift > GPS_SIGNIFICANT_DRIFT_S)
+            struct timeval tv = {.tv_sec = (time_t)data.time, .tv_usec = 0};
+            settimeofday(&tv, nullptr);
+
+            // dump new system date abd time dd.MM.yyyy HH:mm:ss
+            struct tm timeinfo;
+            localtime_r(&tv.tv_sec, &timeinfo);
+            ESP_LOGI(TAG,
+                     "System time adjusted from GPS: %lu (drift: %lds) = %02d.%02d.%04d %02d:%02d:%02d",
+                     (unsigned long)data.time,
+                     (long)drift,
+                     timeinfo.tm_mday,
+                     timeinfo.tm_mon + 1,
+                     timeinfo.tm_year + 1900,
+                     timeinfo.tm_hour,
+                     timeinfo.tm_min,
+                     timeinfo.tm_sec);
+
+            // Play notification sound on initial bootstrap sync or initial GPS lock
+            if (!_time_sync_sound_played || (data.has_fix && !_hal->isGPSAdjusted()))
             {
-                struct timeval tv = {.tv_sec = (time_t)data.time, .tv_usec = 0};
-                settimeofday(&tv, nullptr);
-                if (!_hal->isGPSAdjusted())
-                {
-                    _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
-                    _hal->setGPSAdjusted(true);
-                }
-                // dump new system date abd time dd.MM.yyyy HH:mm:ss
-                struct tm timeinfo;
-                localtime_r(&tv.tv_sec, &timeinfo);
-                ESP_LOGI(TAG,
-                         "System time adjusted from GPS: %lu (drift: %lds) = %02d.%02d.%04d %02d:%02d:%02d",
-                         (unsigned long)data.time,
-                         (long)drift,
-                         timeinfo.tm_mday,
-                         timeinfo.tm_mon + 1,
-                         timeinfo.tm_year + 1900,
-                         timeinfo.tm_hour,
-                         timeinfo.tm_min,
-                         timeinfo.tm_sec);
+                _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
+                _time_sync_sound_played = true;
             }
         }
-        else
+
+        // Set the GPS adjusted flag to indicate whether we currently have a live lock.
+        // This affects the satellite icon in the status bar.
+        _hal->setGPSAdjusted(data.has_fix);
+
+        // If we were delaying sleep for RTC bootstrap, and we now have a valid system clock,
+        // put the GPS to sleep if position config requires it.
+        if (_gps_sleep_delay_active && _gps &&
+            (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED))
         {
-            _hal->setGPSAdjusted(false);
+            time(&sys_now);
+            if (sys_now > BUILD_TIMESTAMP - BUILD_TIME_SLACK_S)
+            {
+                ESP_LOGI(TAG, "RTC bootstrap complete, putting GPS to sleep");
+                _gps->setSleep(true);
+                _gps_sleep_delay_active = false;
+            }
         }
     }
 
@@ -1217,11 +1296,25 @@ namespace Mesh
         {
             if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
             {
-                _gps->setSleep(true);
+                time_t sys_now = 0;
+                time(&sys_now);
+                if (_hal->isGPSAdjusted() || sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S))
+                {
+                    _gps->setSleep(true);
+                    _gps_sleep_delay_active = false;
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "Delaying GPS sleep after mode change to allow RTC bootstrap");
+                    _gps->setSleep(false);
+                    _gps_sleep_delay_active = true;
+                    _gps_sleep_delay_start_ms = millis();
+                }
             }
             else
             {
                 _gps->setSleep(false);
+                _gps_sleep_delay_active = false;
             }
         }
 

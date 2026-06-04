@@ -95,6 +95,15 @@ namespace HAL
         }
 
         _initialized = true;
+
+        // Force wake up GPS module in case it was left in sleep mode from a previous run
+        ESP_LOGI(TAG, "Waking up GPS on init");
+        const char* wake = "\r\n";
+        uart_write_bytes((uart_port_t)_uart_num, wake, 2);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        sendCommand("PCAS12,1");
+        _is_sleeping = false;
+
         ESP_LOGI(TAG, "GPS initialized successfully");
         return true;
     }
@@ -580,12 +589,9 @@ namespace HAL
             _data.time = _to_unix_time(_data.year, _data.month, _data.day, _data.hour, _data.minute, _data.second);
         }
 
-        // Notify subscriber with a consistent snapshot on every valid fix.
-        // Do NOT also require a valid timestamp here: when the module reports a
-        // position but no usable date/time (time == 0), the consumer
-        // (_onGpsData) still needs the callback and validates the time itself
-        // before adjusting the clock.
-        if (_data.has_fix && _data_callback)
+        // Notify subscriber with a consistent snapshot on every parsed RMC sentence
+        // (even if no satellite lock, to allow RTC time bootstrap).
+        if (_data_callback)
         {
             GpsData snapshot;
             memcpy(&snapshot, (const void*)&_data, sizeof(GpsData));
