@@ -63,6 +63,7 @@ namespace SETTINGS
                      _hal->keyboard()->set_dim_time(std::stoi(item.value) * 1000);
              }},
             {"boot_sound", "Boot sound", TYPE_BOOL, "true", "true", "", "", "Play boot sound on startup"},
+            {"key_clicks", "Key clicks", TYPE_BOOL, "true", "true", "", "", "Enable/disable keystroke sounds"},
             {"show_bat_volt", "Battery voltage", TYPE_BOOL, "true", "true", "", "", "Show battery voltage on the system bar"},
             {"show_time", "Show time", TYPE_BOOL, "true", "true", "", "", "Show time on the system bar"},
             {"timezone",
