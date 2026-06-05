@@ -486,6 +486,11 @@ namespace Mesh
         uint32_t _gps_sleep_delay_start_ms;
         bool _time_sync_sound_played;
 
+        // GPS periodic RTC sync
+        bool _gps_periodic_sync_active;
+        uint32_t _gps_periodic_sync_start_ms;
+        uint32_t _last_gps_periodic_sync_ms;
+
         // Callbacks
         MessageCallback _message_callback;
         BatteryCallback _battery_callback;
