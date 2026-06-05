@@ -581,7 +581,7 @@ namespace Mesh
                 }
                 _gps_sleep_delay_active = false;
             }
-            else if (millis() - _gps_sleep_delay_start_ms > 30000)
+            else if (millis() - _gps_sleep_delay_start_ms > GPS_PERIODIC_SYNC_TIMEOUT_MS)
             {
                 if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
                 {
