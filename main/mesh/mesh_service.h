@@ -484,7 +484,6 @@ namespace Mesh
         // GPS sleep delay for RTC bootstrap
         bool _gps_sleep_delay_active;
         uint32_t _gps_sleep_delay_start_ms;
-        bool _time_sync_sound_played;
 
         // GPS periodic RTC sync
         bool _gps_periodic_sync_active;

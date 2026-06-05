@@ -439,6 +439,18 @@ void AppStats::_render_gps_info()
         return;
     }
 
+    auto pos_mode = _data.hal->mesh()->getConfig().position;
+    const char* mode_str = "Unknown";
+    if (pos_mode == Mesh::MeshConfig::POSITION_OFF)
+        mode_str = "Disabled (Off)";
+    else if (pos_mode == Mesh::MeshConfig::POSITION_FIXED)
+        mode_str = "Fixed Position";
+    else if (pos_mode == Mesh::MeshConfig::POSITION_GPS)
+        mode_str = "Live GPS";
+    _add_row("Location Mode", mode_str, TFT_CYAN);
+
+    _add_row("Status", gps->isSleeping() ? "Sleeping" : "Active", gps->isSleeping() ? TFT_YELLOW : TFT_GREEN);
+
     auto data = gps->getData();
 
     static const char* fix_names[] = {"No Fix", "GPS", "DGPS", "PPS", "RTK", "FloatRTK", "Est", "Manual", "Sim"};
