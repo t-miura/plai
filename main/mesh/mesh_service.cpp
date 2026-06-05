@@ -433,7 +433,7 @@ namespace Mesh
     MeshService::MeshService(HAL::Hal* hal)
         : _my_region(nullptr), _bw(250.0f), _sf(11), _cr(5), _saved_freq(0.0f), _saved_channel_num(0), _radio(nullptr),
           _gps(nullptr), _gps_queue(nullptr), _nodedb(nullptr), _router(), _config(), _state(MeshState::UNINITIALIZED),
-          _gps_sleep_delay_active(false), _gps_sleep_delay_start_ms(0), _time_sync_sound_played(false),
+          _gps_sleep_delay_active(false), _gps_sleep_delay_start_ms(0),
           _gps_periodic_sync_active(false), _gps_periodic_sync_start_ms(0), _last_gps_periodic_sync_ms(0),
           _message_callback(nullptr), _battery_callback(nullptr), _fromradio_state(FromRadioState::IDLE),
           _fromradio_config_id(0), _fromradio_node_index(0), _fromradio_channel_index(0), _last_nodeinfo_broadcast_ms(0),
@@ -1194,12 +1194,12 @@ namespace Mesh
                      timeinfo.tm_min,
                      timeinfo.tm_sec);
 
-            // Play notification sound on initial bootstrap sync or initial GPS lock
-            if (!_time_sync_sound_played || (data.has_fix && !_hal->isGPSAdjusted()))
-            {
-                _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
-                _time_sync_sound_played = true;
-            }
+        }
+
+        // Play notification sound on initial GPS lock (transition to live fix)
+        if (data.has_fix && !_hal->isGPSAdjusted())
+        {
+            _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
         }
 
         // Set the GPS adjusted flag to indicate whether we currently have a live lock.
