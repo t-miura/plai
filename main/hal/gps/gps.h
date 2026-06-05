@@ -81,6 +81,12 @@ namespace HAL
     class GPS
     {
     public:
+        // Timing constants for sleep/wake and configuration
+        static constexpr uint32_t GPS_SLEEP_PERIOD_MS = 3600000;    // 60 minutes: Periodic re-send of sleep command
+        static constexpr uint32_t GPS_CONFIG_DELAY_MS = 1000;       // 1 second: Delay after boot/wake before applying config
+        static constexpr uint32_t GPS_COMMAND_SPACING_MS = 50;      // 50ms: Delay between UART commands to GPS module
+        static constexpr uint32_t GPS_UPDATE_RATE_MS = 1000;        // 1 second: GPS module update rate (1Hz)
+
         /**
          * @brief Construct GPS driver
          * @param rx_pin ESP32 RX pin (GPS TX)
