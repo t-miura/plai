@@ -25,7 +25,8 @@ namespace HAL
 
     GPS::GPS(int rx_pin, int tx_pin, int uart_num, int baud_rate)
         : _rx_pin(rx_pin), _tx_pin(tx_pin), _uart_num(uart_num), _baud_rate(baud_rate), _initialized(false),
-          _task_handle(nullptr), _task_running(false), _is_sleeping(false), _last_sleep_cmd_ms(0), _nmea_pos(0), _data{}
+          _task_handle(nullptr), _task_running(false), _is_sleeping(false), _last_sleep_cmd_ms(0),
+          _pending_config_apply(false), _wake_time_ms(0), _nmea_pos(0), _data{}
     {
         memset(_nmea_buf, 0, sizeof(_nmea_buf));
     }
@@ -104,6 +105,10 @@ namespace HAL
         sendCommand("PCAS12,1");
         _is_sleeping = false;
 
+        // Trigger asynchronous GPS configuration after boot-up delay
+        _wake_time_ms = millis();
+        _pending_config_apply = true;
+
         ESP_LOGI(TAG, "GPS initialized successfully");
         return true;
     }
@@ -163,6 +168,10 @@ namespace HAL
                 // Send 1s sleep command to force wake-up state transition
                 sendCommand("PCAS12,1");
                 _is_sleeping = false;
+
+                // Trigger asynchronous GPS configuration after wake-up delay
+                _wake_time_ms = millis();
+                _pending_config_apply = true;
             }
         }
     }
@@ -229,14 +238,27 @@ namespace HAL
     {
         if (_is_sleeping)
         {
-            // Periodic re-send of sleep command (every 10 minutes)
-            if (millis() - _last_sleep_cmd_ms > 600000)
+            // Periodic re-send of sleep command (every 60 minutes)
+            if (millis() - _last_sleep_cmd_ms > 3600000)
             {
                 sendCommand("PCAS12,65535");
                 _last_sleep_cmd_ms = millis();
             }
             vTaskDelay(pdMS_TO_TICKS(1000));
             return;
+        }
+
+        // Apply configuration asynchronously after GPS module has booted/woken up (1 second delay)
+        if (_pending_config_apply && (millis() - _wake_time_ms >= 1000))
+        {
+            _pending_config_apply = false; // Reset first to avoid re-entry
+            ESP_LOGI(TAG, "Applying GPS configuration (1Hz, GGA/RMC only)");
+            sendCommand("PCAS02,1000"); // 1Hz update rate
+            vTaskDelay(pdMS_TO_TICKS(50));
+            sendCommand("PCAS03,1,0,0,0,1,0,0,0"); // GGA & RMC only
+            vTaskDelay(pdMS_TO_TICKS(50));
+            sendCommand("PCAS00"); // Save configuration to flash
+            vTaskDelay(pdMS_TO_TICKS(50));
         }
 
         uint8_t buf[128];

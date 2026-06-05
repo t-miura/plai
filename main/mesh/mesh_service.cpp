@@ -434,6 +434,7 @@ namespace Mesh
         : _my_region(nullptr), _bw(250.0f), _sf(11), _cr(5), _saved_freq(0.0f), _saved_channel_num(0), _radio(nullptr),
           _gps(nullptr), _gps_queue(nullptr), _nodedb(nullptr), _router(), _config(), _state(MeshState::UNINITIALIZED),
           _gps_sleep_delay_active(false), _gps_sleep_delay_start_ms(0), _time_sync_sound_played(false),
+          _gps_periodic_sync_active(false), _gps_periodic_sync_start_ms(0), _last_gps_periodic_sync_ms(0),
           _message_callback(nullptr), _battery_callback(nullptr), _fromradio_state(FromRadioState::IDLE),
           _fromradio_config_id(0), _fromradio_node_index(0), _fromradio_channel_index(0), _last_nodeinfo_broadcast_ms(0),
           _force_nodeinfo_broadcast(false), _last_neighborinfo_broadcast_ms(0), _last_position_broadcast_ms(0),
@@ -588,6 +589,32 @@ namespace Mesh
                     _gps->setSleep(true);
                 }
                 _gps_sleep_delay_active = false;
+            }
+        }
+
+        // Handle periodic GPS RTC sync when GPS is sleeping (POSITION_OFF or POSITION_FIXED)
+        if (_gps && (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED))
+        {
+            uint32_t now = millis();
+            if (!_gps_periodic_sync_active)
+            {
+                if (now - _last_gps_periodic_sync_ms >= GPS_PERIODIC_SYNC_INTERVAL_S * 1000)
+                {
+                    ESP_LOGI(TAG, "Starting periodic GPS RTC sync");
+                    _gps->setSleep(false);
+                    _gps_periodic_sync_active = true;
+                    _gps_periodic_sync_start_ms = now;
+                }
+            }
+            else
+            {
+                if (now - _gps_periodic_sync_start_ms > 30000)
+                {
+                    ESP_LOGW(TAG, "Periodic GPS RTC sync timed out, putting GPS back to sleep");
+                    _gps->setSleep(true);
+                    _gps_periodic_sync_active = false;
+                    _last_gps_periodic_sync_ms = now;
+                }
             }
         }
 
@@ -1077,6 +1104,8 @@ namespace Mesh
         {
             _gps->setDataCallback([this](const HAL::GpsData& data) { xQueueOverwrite(_gps_queue, &data); });
 
+            _last_gps_periodic_sync_ms = millis();
+
             // Apply initial sleep state based on config, but keep GPS awake
             // on boot to bootstrap system time if not already done.
             if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
@@ -1138,7 +1167,10 @@ namespace Mesh
         // We sync if:
         // 1. System clock is currently invalid/unset (RTC bootstrap)
         // 2. We have a live GPS fix and the drift is significant
-        bool should_sync = !is_sys_time_valid || (data.has_fix && (drift > GPS_SIGNIFICANT_DRIFT_S));
+        // 3. We are running a periodic RTC sync from the GPS's crystal RTC and drift is significant
+        bool should_sync = !is_sys_time_valid || 
+                           (data.has_fix && (drift > GPS_SIGNIFICANT_DRIFT_S)) ||
+                           (_gps_periodic_sync_active && (drift > GPS_SIGNIFICANT_DRIFT_S));
 
         ESP_LOGD("GPS_SYNC", "is_sys_time_valid=%d, drift=%ld, should_sync=%d",
                  is_sys_time_valid, (long)drift, should_sync);
@@ -1186,6 +1218,19 @@ namespace Mesh
                 _gps->setSleep(true);
                 _gps_sleep_delay_active = false;
             }
+        }
+
+        // If we were performing a periodic RTC sync, and we received a valid time,
+        // put the GPS back to sleep and update the sync state.
+        if (_gps_periodic_sync_active && _gps)
+        {
+            ESP_LOGI(TAG, "Periodic RTC sync complete, putting GPS back to sleep");
+            if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+            {
+                _gps->setSleep(true);
+            }
+            _gps_periodic_sync_active = false;
+            _last_gps_periodic_sync_ms = millis();
         }
     }
 
@@ -1294,6 +1339,9 @@ namespace Mesh
 
         if (position_mode_changed && _gps)
         {
+            _gps_periodic_sync_active = false;
+            _last_gps_periodic_sync_ms = millis();
+
             if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
             {
                 time_t sys_now = 0;

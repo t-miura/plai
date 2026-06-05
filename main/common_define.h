@@ -64,3 +64,6 @@ static constexpr time_t BUILD_TIME_SLACK_S = 24 * 60 * 60; // 1 day
 
 // Minimum GPS-vs-system-clock drift (seconds) that triggers a time adjustment.
 static constexpr time_t GPS_SIGNIFICANT_DRIFT_S = 60;
+
+// Interval (seconds) at which to periodically wake up the GPS (if sleeping) to sync RTC
+static constexpr time_t GPS_PERIODIC_SYNC_INTERVAL_S = 2 * 60 * 60; // 2 hours
