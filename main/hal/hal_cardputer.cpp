@@ -143,7 +143,7 @@ void HalCardputer::_init_i2c()
 #endif
 
 #if HAL_USE_DISPLAY
-static constexpr size_t EMOJI_CACHE_CAP = 5;
+static constexpr size_t EMOJI_CACHE_CAP = 10;
 static struct EmojiCacheEntry
 {
     uint32_t code = 0;
