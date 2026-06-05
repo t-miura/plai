@@ -3879,14 +3879,29 @@ namespace Mesh
                 position.has_altitude = true;
                 position.altitude = _config.fixed_altitude;
             }
+            if (pf & meshtastic_Config_PositionConfig_PositionFlags_SEQ_NO)
+            {
+                position.seq_number = seq_number++;
+            }
+            if (pf & meshtastic_Config_PositionConfig_PositionFlags_TIMESTAMP)
+            {
+                time_t sys_now = 0;
+                time(&sys_now);
+                if (sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S))
+                {
+                    position.time = (uint32_t)sys_now;
+                }
+            }
             position.location_source = meshtastic_Position_LocSource_LOC_MANUAL;
 
             has_position = true;
             ESP_LOGI(TAG,
-                     "Sending fixed position: lat=%ld lon=%ld alt=%ld flags=0x%08lx",
+                     "Sending fixed position: lat=%ld lon=%ld alt=%ld time=%lu seq=%lu flags=0x%08lx",
                      (long)position.latitude_i,
                      (long)position.longitude_i,
                      (long)position.altitude,
+                     (unsigned long)position.time,
+                     (unsigned long)position.seq_number,
                      (unsigned long)pf);
         }
         // Otherwise use live GPS if available (POSITION_GPS mode)
