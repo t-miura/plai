@@ -143,7 +143,7 @@ void HalCardputer::_init_i2c()
 #endif
 
 #if HAL_USE_DISPLAY
-static constexpr size_t EMOJI_CACHE_CAP = 5;
+static constexpr size_t EMOJI_CACHE_CAP = 10;
 static struct EmojiCacheEntry
 {
     uint32_t code = 0;
@@ -171,7 +171,6 @@ static const EmojiCacheEntry* emoji_cache_lookup(uint32_t code)
     FILE* f = fopen(path, "rb");
     if (f)
     {
-        setbuf(f, nullptr);
         fseek(f, 0, SEEK_END);
         long sz = ftell(f);
         if (sz > 24 && sz < 64 * 1024)

@@ -45,7 +45,7 @@ namespace Mesh
     static_assert(sizeof(PacketHeader) == MESHTASTIC_HEADER_LENGTH, "PacketHeader size must be 16 bytes");
 
     constexpr size_t TX_QUEUE_SIZE = 16;
-    constexpr size_t RX_QUEUE_SIZE = 16;
+    constexpr size_t RX_QUEUE_SIZE = 32;
 
     enum class PacketPriority
     {
