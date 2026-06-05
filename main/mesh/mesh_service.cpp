@@ -608,7 +608,7 @@ namespace Mesh
             }
             else
             {
-                if (now - _gps_periodic_sync_start_ms > 30000)
+                if (now - _gps_periodic_sync_start_ms > GPS_PERIODIC_SYNC_TIMEOUT_MS)
                 {
                     ESP_LOGW(TAG, "Periodic GPS RTC sync timed out, putting GPS back to sleep");
                     _gps->setSleep(true);
