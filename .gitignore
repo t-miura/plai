@@ -1,5 +1,6 @@
 .vscode
 .cache
+.local
 build
 managed_components
 docs
@@ -7,3 +8,4 @@ archive
 main/meshtastic/*
 tools
 protobufs
+GEMINI.md
