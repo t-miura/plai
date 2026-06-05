@@ -1,3 +1,4 @@
+.DS_Store
 .vscode
 .cache
 .local
@@ -8,4 +9,7 @@ archive
 main/meshtastic/*
 tools
 protobufs
+.log
+.bin
+eim_config.toml
 GEMINI.md
