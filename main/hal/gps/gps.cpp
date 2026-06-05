@@ -77,6 +77,9 @@ namespace HAL
         memset((void*)&_data, 0, sizeof(GpsData));
         _nmea_pos = 0;
 
+        // Set GPS Update Rate to 1Hz
+        sendCommand("PCAS02,1000");
+
         // Start background task
         _task_running = true;
         BaseType_t ret = xTaskCreatePinnedToCore(_uart_task,
