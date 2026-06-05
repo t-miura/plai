@@ -154,6 +154,8 @@ namespace HAL
                 sendCommand("PCAS12,65535");
                 _is_sleeping = true;
                 _last_sleep_cmd_ms = millis();
+                // Clear GPS data since we no longer have an active lock/feed
+                memset((void*)&_data, 0, sizeof(GpsData));
             }
         }
         else

@@ -1204,7 +1204,14 @@ namespace Mesh
 
         // Set the GPS adjusted flag to indicate whether we currently have a live lock.
         // This affects the satellite icon in the status bar.
-        _hal->setGPSAdjusted(data.has_fix);
+        if (_config.position == MeshConfig::POSITION_GPS)
+        {
+            _hal->setGPSAdjusted(data.has_fix);
+        }
+        else
+        {
+            _hal->setGPSAdjusted(false);
+        }
 
         // If we were delaying sleep for RTC bootstrap, and we now have a valid system clock,
         // put the GPS to sleep if position config requires it.
@@ -1337,32 +1344,38 @@ namespace Mesh
         _config.fixed_altitude = config.fixed_altitude;
         _config.position_flags = config.position_flags;
 
-        if (position_mode_changed && _gps)
+        if (position_mode_changed)
         {
-            _gps_periodic_sync_active = false;
-            _last_gps_periodic_sync_ms = millis();
+            bool was_gps_adjusted = _hal->isGPSAdjusted();
+            _hal->setGPSAdjusted(false);
 
-            if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+            if (_gps)
             {
-                time_t sys_now = 0;
-                time(&sys_now);
-                if (_hal->isGPSAdjusted() || sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S))
+                _gps_periodic_sync_active = false;
+                _last_gps_periodic_sync_ms = millis();
+
+                if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
                 {
-                    _gps->setSleep(true);
-                    _gps_sleep_delay_active = false;
+                    time_t sys_now = 0;
+                    time(&sys_now);
+                    if (was_gps_adjusted || sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S))
+                    {
+                        _gps->setSleep(true);
+                        _gps_sleep_delay_active = false;
+                    }
+                    else
+                    {
+                        ESP_LOGI(TAG, "Delaying GPS sleep after mode change to allow RTC bootstrap");
+                        _gps->setSleep(false);
+                        _gps_sleep_delay_active = true;
+                        _gps_sleep_delay_start_ms = millis();
+                    }
                 }
                 else
                 {
-                    ESP_LOGI(TAG, "Delaying GPS sleep after mode change to allow RTC bootstrap");
                     _gps->setSleep(false);
-                    _gps_sleep_delay_active = true;
-                    _gps_sleep_delay_start_ms = millis();
+                    _gps_sleep_delay_active = false;
                 }
-            }
-            else
-            {
-                _gps->setSleep(false);
-                _gps_sleep_delay_active = false;
             }
         }
 
