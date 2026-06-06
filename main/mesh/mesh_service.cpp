@@ -440,7 +440,8 @@ namespace Mesh
           _force_nodeinfo_broadcast(false), _last_neighborinfo_broadcast_ms(0), _last_position_broadcast_ms(0),
           _last_telemetry_broadcast_ms(0), _tx_in_progress(false), _last_tx_start_ms(0), _last_rx_rssi(0), _last_rx_snr(0.0f),
           _airtime_window_start_ms(0), _airtime_tx_ms(0), _airtime_rx_ms(0), _airtime_tx_ms_prev(0), _airtime_rx_ms_prev(0),
-          _slot_time_ms(28), _tx_not_before_ms(0), _cad_in_progress(false)
+          _slot_time_ms(28), _tx_not_before_ms(0), _cad_in_progress(false),
+          _last_cad_start_ms(0), _last_busy_high_ms(0), _last_tx_or_rx_activity_ms(0)
     {
         _hal = hal;
         memset(&_config, 0, sizeof(_config));
@@ -520,6 +521,10 @@ namespace Mesh
     bool MeshService::start()
     {
         ESP_LOGD(TAG, "Starting mesh service");
+
+        _last_tx_or_rx_activity_ms = millis();
+        _last_cad_start_ms = 0;
+        _last_busy_high_ms = 0;
 
         // Apply LoRa configuration to radio
         applyModemConfig();
@@ -634,8 +639,10 @@ namespace Mesh
         // Process RX queue
         _router.processRxQueue();
 
-        // Recover if TX_DONE never arrives
+        // Run watchdogs to recover from potential radio lockups
         uint32_t now = millis();
+
+        // 1. TX_DONE watchdog (TX mode stuck)
         if (_tx_in_progress && _radio)
         {
             if (_radio->getMode() != HAL::RadioMode::TX)
@@ -644,22 +651,48 @@ namespace Mesh
             }
             else if (now - _last_tx_start_ms > TX_WATCHDOG_TIMEOUT_MS)
             {
-                ESP_LOGW(TAG, "TX watchdog fired, resetting and reinitializing radio (%lu - %lu)", now, _last_tx_start_ms);
-                _tx_in_progress = false;
-                _cad_in_progress = false;
-                _radio->deinit();
-                if (_radio->init())
-                {
-                    applyModemConfig();
-                    _radio->setEventCallback([this](HAL::RadioEvent event) { onRadioEvent(event); });
-                    _radio->startReceive(0);
-                    ESP_LOGI(TAG, "Radio successfully recovered and restarted");
-                }
-                else
-                {
-                    ESP_LOGE(TAG, "Failed to reinitialize radio after watchdog trigger");
-                }
+                ESP_LOGW(TAG, "TX watchdog fired (TX_DONE never arrived) (%lu - %lu)", now, _last_tx_start_ms);
+                recoverRadio();
             }
+        }
+
+        // 2. CAD watchdog (CAD stuck)
+        if (_cad_in_progress && _radio)
+        {
+            if (now - _last_cad_start_ms > CAD_WATCHDOG_TIMEOUT_MS)
+            {
+                ESP_LOGW(TAG, "CAD watchdog fired (CAD_DONE/CAD_DETECTED never arrived) (%lu - %lu)", now, _last_cad_start_ms);
+                recoverRadio();
+            }
+        }
+
+        // 3. Busy pin watchdog (Busy pin stuck high)
+        if (_radio && _radio->isBusy() && _radio->getMode() != HAL::RadioMode::TX)
+        {
+            if (_last_busy_high_ms == 0)
+            {
+                _last_busy_high_ms = now;
+            }
+            else if (now - _last_busy_high_ms > BUSY_WATCHDOG_TIMEOUT_MS)
+            {
+                ESP_LOGW(TAG, "Busy pin watchdog fired (busy pin stuck high for %lu ms)", now - _last_busy_high_ms);
+                recoverRadio();
+            }
+        }
+        else
+        {
+            _last_busy_high_ms = 0;
+        }
+
+        // 4. TX Queue activity watchdog (queue has packets, but no tx or rx activity occurs)
+        if (!_router.hasTxPackets())
+        {
+            _last_tx_or_rx_activity_ms = now;
+        }
+        else if (now - _last_tx_or_rx_activity_ms > TX_QUEUE_WATCHDOG_TIMEOUT_MS)
+        {
+            ESP_LOGW(TAG, "TX queue watchdog fired (TX queue full/not draining, no activity for %lu ms)", now - _last_tx_or_rx_activity_ms);
+            recoverRadio();
         }
 
         // Ensure radio stays in RX mode when idle (skip during CAD scan)
@@ -772,12 +805,39 @@ namespace Mesh
         if (_radio && _radio->startCAD())
         {
             _cad_in_progress = true;
+            _last_cad_start_ms = millis();
             ESP_LOGD(TAG, "CAD started before TX");
         }
         else
         {
             ESP_LOGW(TAG, "CAD start failed, resetting TX delay");
             setTxDelay();
+        }
+    }
+
+    void MeshService::recoverRadio()
+    {
+        _tx_in_progress = false;
+        _cad_in_progress = false;
+        _last_tx_or_rx_activity_ms = millis();
+        _last_cad_start_ms = 0;
+        _last_busy_high_ms = 0;
+
+        if (_radio)
+        {
+            ESP_LOGW(TAG, "Triggering radio recovery/reinitialization...");
+            _radio->deinit();
+            if (_radio->init())
+            {
+                applyModemConfig();
+                _radio->setEventCallback([this](HAL::RadioEvent event) { onRadioEvent(event); });
+                _radio->startReceive(0);
+                ESP_LOGI(TAG, "Radio successfully recovered and restarted");
+            }
+            else
+            {
+                ESP_LOGE(TAG, "Failed to reinitialize radio after recovery trigger");
+            }
         }
     }
 
@@ -1512,6 +1572,7 @@ namespace Mesh
 
     void MeshService::onRadioEvent(HAL::RadioEvent event)
     {
+        _last_tx_or_rx_activity_ms = millis();
         switch (event)
         {
         case HAL::RadioEvent::TX_DONE:
