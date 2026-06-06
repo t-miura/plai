@@ -455,6 +455,7 @@ namespace Mesh
                                 uint8_t hop_limit,
                                 PacketPriority priority,
                                 meshtastic_PortNum port_num,
+                                uint8_t channel = 0,
                                 uint8_t* out_raw_buf = nullptr,
                                 size_t* out_raw_len = nullptr);
 
