@@ -3680,9 +3680,9 @@ namespace Mesh
                                          uint8_t hop_limit,
                                          PacketPriority priority,
                                          meshtastic_PortNum port_num,
-                                         uint8_t channel,
                                          uint8_t* out_raw_buf,
-                                         size_t* out_raw_len)
+                                         size_t* out_raw_len,
+                                         uint8_t channel)
     {
         const meshtastic_ChannelSettings* ch_settings = &_config.primary_channel.settings;
         if (channel > 0 && _nodedb)
@@ -3848,6 +3848,8 @@ namespace Mesh
                                       _config.lora_config.hop_limit,
                                       priority,
                                       meshtastic_PortNum_NODEINFO_APP,
+                                      nullptr,
+                                      nullptr,
                                       channel);
         if (pid)
         {
@@ -3920,6 +3922,8 @@ namespace Mesh
                                       _config.lora_config.hop_limit,
                                       PacketPriority::DEFAULT,
                                       meshtastic_PortNum_NEIGHBORINFO_APP,
+                                      nullptr,
+                                      nullptr,
                                       channel);
         if (pid)
             ESP_LOGI(TAG, "NeighborInfo sent to 0x%08lX", (unsigned long)dest);
@@ -4111,6 +4115,8 @@ namespace Mesh
                                       _config.lora_config.hop_limit,
                                       priority,
                                       meshtastic_PortNum_POSITION_APP,
+                                      nullptr,
+                                      nullptr,
                                       channel);
         if (pid)
         {
