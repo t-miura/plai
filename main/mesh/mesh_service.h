@@ -456,7 +456,8 @@ namespace Mesh
                                 PacketPriority priority,
                                 meshtastic_PortNum port_num,
                                 uint8_t* out_raw_buf = nullptr,
-                                size_t* out_raw_len = nullptr);
+                                size_t* out_raw_len = nullptr,
+                                uint8_t channel = 0);
 
         // New-node greeting
         void sendNewNodeGreeting(uint32_t node_id, uint8_t channel, uint8_t hops, int16_t rssi, float snr);

@@ -15,6 +15,7 @@
 #include "common_define.h"
 #include "esp_log.h"
 #include <time.h>
+#include <unordered_map>
 #include <format>
 #include "esp_mac.h"
 #include "esp_random.h"
@@ -2380,8 +2381,10 @@ namespace Mesh
             if (_nodedb && decoded_packet.from != _config.node_id)
             {
                 Mesh::NodeInfo node_info;
+                bool had_user = false;
                 if (getNode(decoded_packet.from, node_info))
                 {
+                    had_user = node_info.info.has_user;
                     // Update existing node with new signal values
                     node_info.last_rssi = _last_rx_rssi;
                     node_info.info.snr = _last_rx_snr;
@@ -2424,6 +2427,29 @@ namespace Mesh
                     new_node.has_hops_away = true;
                     snprintf(new_node.user.id, sizeof(new_node.user.id), "!%08lx", (unsigned long)decoded_packet.from);
                     _nodedb->updateNode(new_node, _last_rx_rssi, _last_rx_snr, decoded_packet.relay_node);
+                }
+
+                // Auto-query NodeInfo if we don't have user details, only for standard CLIENT roles
+                if (!had_user && _config.role == meshtastic_Config_DeviceConfig_Role_CLIENT)
+                {
+                    static std::unordered_map<uint32_t, uint32_t> last_query_times;
+                    uint32_t now = (uint32_t)time(nullptr);
+                    auto it = last_query_times.find(decoded_packet.from);
+                    bool query_allowed = true;
+                    if (it != last_query_times.end())
+                    {
+                        if (now - it->second < 300) // 5 minutes cooldown
+                        {
+                            query_allowed = false;
+                        }
+                    }
+
+                    if (query_allowed)
+                    {
+                        last_query_times[decoded_packet.from] = now;
+                        ESP_LOGI(TAG, "Node info missing for 0x%08lX. Requesting on channel %d...", (unsigned long)decoded_packet.from, decoded_packet.channel);
+                        sendNodeInfo(decoded_packet.from, decoded_packet.channel, true);
+                    }
                 }
             }
 
@@ -3655,19 +3681,28 @@ namespace Mesh
                                          PacketPriority priority,
                                          meshtastic_PortNum port_num,
                                          uint8_t* out_raw_buf,
-                                         size_t* out_raw_len)
+                                         size_t* out_raw_len,
+                                         uint8_t channel)
     {
+        const meshtastic_ChannelSettings* ch_settings = &_config.primary_channel.settings;
+        if (channel > 0 && _nodedb)
+        {
+            meshtastic_Channel* ch = _nodedb->getChannel(channel);
+            if (ch && ch->has_settings)
+                ch_settings = &ch->settings;
+        }
+
         uint8_t key[32] = {};
         size_t key_len = 0;
         bool no_crypto = false;
-        if (!expandChannelPsk(_config.primary_channel.settings, key, key_len, no_crypto))
+        if (!expandChannelPsk(*ch_settings, key, key_len, no_crypto))
         {
             ESP_LOGE(TAG, "Failed to expand channel PSK");
             return 0;
         }
 
         uint8_t channel_hash = 0;
-        computeChannelHash(_config, key, key_len, channel_hash);
+        computeChannelHashFromSettings(*ch_settings, _config, key, key_len, channel_hash);
 
         if (data_len > (MAX_LORA_PAYLOAD - MESHTASTIC_HEADER_LENGTH))
         {
@@ -3812,7 +3847,10 @@ namespace Mesh
                                       false,
                                       _config.lora_config.hop_limit,
                                       priority,
-                                      meshtastic_PortNum_NODEINFO_APP);
+                                      meshtastic_PortNum_NODEINFO_APP,
+                                      nullptr,
+                                      nullptr,
+                                      channel);
         if (pid)
         {
             if (is_broadcast)
@@ -3883,7 +3921,10 @@ namespace Mesh
                                       false,
                                       _config.lora_config.hop_limit,
                                       PacketPriority::DEFAULT,
-                                      meshtastic_PortNum_NEIGHBORINFO_APP);
+                                      meshtastic_PortNum_NEIGHBORINFO_APP,
+                                      nullptr,
+                                      nullptr,
+                                      channel);
         if (pid)
             ESP_LOGI(TAG, "NeighborInfo sent to 0x%08lX", (unsigned long)dest);
         else
@@ -4073,7 +4114,10 @@ namespace Mesh
                                       false,
                                       _config.lora_config.hop_limit,
                                       priority,
-                                      meshtastic_PortNum_POSITION_APP);
+                                      meshtastic_PortNum_POSITION_APP,
+                                      nullptr,
+                                      nullptr,
+                                      channel);
         if (pid)
         {
             ESP_LOGI(TAG, "Position packet queued to 0x%08lX", (unsigned long)dest);
