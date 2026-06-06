@@ -569,6 +569,13 @@ namespace Mesh
         uint32_t _slot_time_ms;
         uint32_t _tx_not_before_ms;
         bool _cad_in_progress;
+        uint32_t _last_cad_start_ms;
+        uint32_t _last_busy_high_ms;
+        uint32_t _last_tx_or_rx_activity_ms;
+        static constexpr uint32_t CAD_WATCHDOG_TIMEOUT_MS = 5000;
+        static constexpr uint32_t BUSY_WATCHDOG_TIMEOUT_MS = 5000;
+        static constexpr uint32_t TX_QUEUE_WATCHDOG_TIMEOUT_MS = 20000;
+        void recoverRadio();
         uint32_t computeSlotTimeMsec() const;
         uint32_t getTxDelayMsec() const;
         void setTxDelay();
