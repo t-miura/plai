@@ -90,9 +90,21 @@ namespace HAL
 
 #if HAL_USE_SPEAKER
         void playErrorSound() override { _speaker->playWav(error_wav_start, error_wav_end - error_wav_start); }
-        void playKeyboardSound() override { _speaker->tone(5000, 20); }
-        void playLastSound() override { _speaker->tone(6000, 20); }
-        void playNextSound() override { _speaker->tone(7000, 20); }
+        void playKeyboardSound() override
+        {
+            if (_settings && _settings->getBool("system", "key_clicks"))
+                _speaker->tone(5000, 20);
+        }
+        void playLastSound() override
+        {
+            if (_settings && _settings->getBool("system", "key_clicks"))
+                _speaker->tone(6000, 20);
+        }
+        void playNextSound() override
+        {
+            if (_settings && _settings->getBool("system", "key_clicks"))
+                _speaker->tone(7000, 20);
+        }
         void playMessageSound() override
         {
             _speaker->tone(1633, 60);

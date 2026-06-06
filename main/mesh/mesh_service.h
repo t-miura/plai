@@ -456,7 +456,8 @@ namespace Mesh
                                 PacketPriority priority,
                                 meshtastic_PortNum port_num,
                                 uint8_t* out_raw_buf = nullptr,
-                                size_t* out_raw_len = nullptr);
+                                size_t* out_raw_len = nullptr,
+                                uint8_t channel = 0);
 
         // New-node greeting
         void sendNewNodeGreeting(uint32_t node_id, uint8_t channel, uint8_t hops, int16_t rssi, float snr);
@@ -480,6 +481,15 @@ namespace Mesh
         PacketRouter _router;
         MeshConfig _config;
         MeshState _state;
+
+        // GPS sleep delay for RTC bootstrap
+        bool _gps_sleep_delay_active;
+        uint32_t _gps_sleep_delay_start_ms;
+
+        // GPS periodic RTC sync
+        bool _gps_periodic_sync_active;
+        uint32_t _gps_periodic_sync_start_ms;
+        uint32_t _last_gps_periodic_sync_ms;
 
         // Callbacks
         MessageCallback _message_callback;
@@ -560,6 +570,13 @@ namespace Mesh
         uint32_t _slot_time_ms;
         uint32_t _tx_not_before_ms;
         bool _cad_in_progress;
+        uint32_t _last_cad_start_ms;
+        uint32_t _last_busy_high_ms;
+        uint32_t _last_tx_or_rx_activity_ms;
+        static constexpr uint32_t CAD_WATCHDOG_TIMEOUT_MS = 5000;
+        static constexpr uint32_t BUSY_WATCHDOG_TIMEOUT_MS = 5000;
+        static constexpr uint32_t TX_QUEUE_WATCHDOG_TIMEOUT_MS = 20000;
+        void recoverRadio();
         uint32_t computeSlotTimeMsec() const;
         uint32_t getTxDelayMsec() const;
         void setTxDelay();

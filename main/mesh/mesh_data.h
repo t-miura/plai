@@ -481,10 +481,8 @@ namespace Mesh
         // Graph data
         void addBatteryPoint(float voltage);
         void addChannelActivityPoint(float packets_per_min);
-        void addRssiPoint(uint32_t node_id, int16_t rssi);
         const std::vector<GraphPoint>& getBatteryHistory() const { return _battery_history; }
         const std::vector<GraphPoint>& getChannelActivityHistory() const { return _channel_activity; }
-        std::vector<GraphPoint> getRssiHistory(uint32_t node_id) const;
 
     private:
         MeshDataStore() : _initialized(false), _change_counter(0) {}
@@ -525,7 +523,6 @@ namespace Mesh
         PortDistribution _port_dist = {};
         std::vector<GraphPoint> _battery_history;
         std::vector<GraphPoint> _channel_activity;
-        std::map<uint32_t, std::vector<GraphPoint>> _rssi_history;
 
         static constexpr size_t MAX_GRAPH_POINTS = 60; // 1 hour at 1 point/min
     };

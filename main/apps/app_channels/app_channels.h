@@ -113,7 +113,7 @@ namespace MOONCAKE::APPS
     {
         std::string getAppName() override { return "CHANNELS"; }
         std::string getAppDesc() override { return "Group chat channels"; }
-        void* getAppIcon() override { return (void*)(new AppIcon_t(image_data_app_channels, nullptr)); }
+        void* getAppIcon() override { static AppIcon_t icon(image_data_app_channels, nullptr); return (void*)&icon; }
         void* newApp() override { return new AppChannels; }
         void deleteApp(void* app) override { delete (AppChannels*)app; }
     };

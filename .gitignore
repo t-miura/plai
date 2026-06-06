@@ -1,8 +1,15 @@
+.DS_Store
 .vscode
 .cache
+.local
 build
 managed_components
 docs
 archive
 main/meshtastic/*
 tools
+protobufs
+.log
+.bin
+eim_config.toml
+GEMINI.md

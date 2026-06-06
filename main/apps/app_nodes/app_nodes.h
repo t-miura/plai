@@ -209,7 +209,7 @@ namespace MOONCAKE::APPS
     {
         std::string getAppName() override { return "NODES"; }
         std::string getAppDesc() override { return "Mesh network nodes"; }
-        void* getAppIcon() override { return (void*)(new AppIcon_t(image_data_app_nodes, nullptr)); }
+        void* getAppIcon() override { static AppIcon_t icon(image_data_app_nodes, nullptr); return (void*)&icon; }
         void* newApp() override { return new AppNodes; }
         void deleteApp(void* app) override { delete (AppNodes*)app; }
     };

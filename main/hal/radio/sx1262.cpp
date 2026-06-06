@@ -365,7 +365,7 @@ namespace HAL
         bus_cfg.data5_io_num = -1;
         bus_cfg.data6_io_num = -1;
         bus_cfg.data7_io_num = -1;
-        bus_cfg.max_transfer_sz = 512;
+        bus_cfg.max_transfer_sz = 4092;
         bus_cfg.flags = SPICOMMON_BUSFLAG_SCLK | SPICOMMON_BUSFLAG_MOSI | SPICOMMON_BUSFLAG_MISO;
         bus_cfg.isr_cpu_id = ESP_INTR_CPU_AFFINITY_AUTO;
         bus_cfg.intr_flags = 0;

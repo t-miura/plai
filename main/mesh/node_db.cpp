@@ -26,6 +26,17 @@
 
 static const char* TAG = "NODE_DB";
 
+static FILE* fopen_nobuf(const char* path, const char* mode)
+{
+    FILE* f = ::fopen(path, mode);
+    if (f)
+    {
+        setvbuf(f, NULL, _IONBF, 0);
+    }
+    return f;
+}
+#define fopen fopen_nobuf
+
 namespace Mesh
 {
 
@@ -36,7 +47,6 @@ namespace Mesh
         memset(&_local_config, 0, sizeof(_local_config));
         memset(&_local_module_config, 0, sizeof(_local_module_config));
         memset(_channels, 0, sizeof(_channels));
-        _index.reserve(MAX_NODES);
     }
 
     NodeDB::~NodeDB()
@@ -249,12 +259,14 @@ namespace Mesh
 
     bool NodeDB::loadIndex()
     {
-        FILE* file = fopen(MANIFEST_FILE, "rb");
+        FILE* file = ::fopen(MANIFEST_FILE, "rb");
         if (!file)
         {
             ESP_LOGW(TAG, "No manifest file found");
             return false;
         }
+        char buf[512];
+        setvbuf(file, buf, _IOFBF, sizeof(buf));
 
         bool success = false;
 
@@ -332,12 +344,14 @@ namespace Mesh
 
     bool NodeDB::saveIndex()
     {
-        FILE* file = fopen(MANIFEST_FILE, "wb");
+        FILE* file = ::fopen(MANIFEST_FILE, "wb");
         if (!file)
         {
             ESP_LOGE(TAG, "Failed to open %s for writing", MANIFEST_FILE);
             return false;
         }
+        char buf[512];
+        setvbuf(file, buf, _IOFBF, sizeof(buf));
 
         // Write header
         uint32_t magic = MANIFEST_MAGIC;

@@ -64,6 +64,7 @@ namespace SETTINGS
                      _hal->keyboard()->set_dim_time(std::stoi(item.value) * 1000);
              }},
             {"boot_sound", "Boot sound", TYPE_BOOL, "true", "true", "", "", "Play boot sound on startup"},
+            {"key_clicks", "Key clicks", TYPE_BOOL, "true", "true", "", "", "Enable/disable keystroke sounds"},
             {"show_bat_volt", "Battery voltage", TYPE_BOOL, "true", "true", "", "", "Show battery voltage on the system bar"},
             {"show_time", "Show time", TYPE_BOOL, "true", "true", "", "", "Show time on the system bar"},
             {"timezone",
@@ -77,6 +78,8 @@ namespace SETTINGS
              "",
              "Timezone offset from GMT",
              [](SettingItem_t& item) { applyTimezone(item.value); }},
+            {"gps_rtc_sync", "GPS RTC Sync", TYPE_BOOL, "true", "true", "", "", "Sync time from GPS module's RTC on boot/periodically"},
+            {"mesh_time_sync", "Mesh Time Sync", TYPE_BOOL, "true", "true", "", "", "Sync time from incoming Mesh position packets"},
             {"map_style",
              "Map style",
              TYPE_STRING,
@@ -85,6 +88,8 @@ namespace SETTINGS
              "osm;dark;voyager;topo",
              "",
              "Offline map style (map folder on SD card)"},
+            {"sort_order", "Sort order", TYPE_NUMBER, "6", "6", "0", "8", "Default sort order for nodes list"},
+            {"map_zoom", "Map zoom", TYPE_NUMBER, "10", "10", "1", "15", "Default zoom level for map view"},
         };
 
         auto mesh_apply_cb = [this](SettingItem_t& item) { applyMeshConfig(item); };
