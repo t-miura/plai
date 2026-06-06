@@ -81,6 +81,12 @@ namespace HAL
     class GPS
     {
     public:
+        // Timing constants for sleep/wake and configuration
+        static constexpr uint32_t GPS_SLEEP_PERIOD_MS = 3600000;    // 60 minutes: Periodic re-send of sleep command
+        static constexpr uint32_t GPS_CONFIG_DELAY_MS = 1000;       // 1 second: Delay after boot/wake before applying config
+        static constexpr uint32_t GPS_COMMAND_SPACING_MS = 50;      // 50ms: Delay between UART commands to GPS module
+        static constexpr uint32_t GPS_UPDATE_RATE_MS = 1000;        // 1 second: GPS module update rate (1Hz)
+
         /**
          * @brief Construct GPS driver
          * @param rx_pin ESP32 RX pin (GPS TX)
@@ -192,6 +198,17 @@ namespace HAL
         void setDataCallback(DataCallback cb);
 
         /**
+         * @brief Set GPS module sleep state (low power standby)
+         * @param sleep true to sleep, false to wake up
+         */
+        void setSleep(bool sleep);
+
+        /**
+         * @brief Check if GPS is in sleep mode
+         */
+        bool isSleeping() const { return _is_sleeping; }
+
+        /**
          * @brief Send a NMEA command to GPS module
          * @param cmd Command without $ prefix or *checksum suffix (e.g. "PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
          */
@@ -208,6 +225,10 @@ namespace HAL
         bool _initialized;
         TaskHandle_t _task_handle;
         volatile bool _task_running;
+        volatile bool _is_sleeping;
+        uint32_t _last_sleep_cmd_ms;
+        volatile bool _pending_config_apply;
+        uint32_t _wake_time_ms;
 
         // NMEA parser state
         char _nmea_buf[128]; // Current NMEA sentence buffer

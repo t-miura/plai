@@ -433,6 +433,8 @@ namespace Mesh
     MeshService::MeshService(HAL::Hal* hal)
         : _my_region(nullptr), _bw(250.0f), _sf(11), _cr(5), _saved_freq(0.0f), _saved_channel_num(0), _radio(nullptr),
           _gps(nullptr), _gps_queue(nullptr), _nodedb(nullptr), _router(), _config(), _state(MeshState::UNINITIALIZED),
+          _gps_sleep_delay_active(false), _gps_sleep_delay_start_ms(0),
+          _gps_periodic_sync_active(false), _gps_periodic_sync_start_ms(0), _last_gps_periodic_sync_ms(0),
           _message_callback(nullptr), _battery_callback(nullptr), _fromradio_state(FromRadioState::IDLE),
           _fromradio_config_id(0), _fromradio_node_index(0), _fromradio_channel_index(0), _last_nodeinfo_broadcast_ms(0),
           _force_nodeinfo_broadcast(false), _last_neighborinfo_broadcast_ms(0), _last_position_broadcast_ms(0),
@@ -564,6 +566,65 @@ namespace Mesh
             _onGpsData(gps_snapshot);
         }
 
+        // Handle GPS sleep delay timeout for RTC bootstrap
+        if (_gps_sleep_delay_active && _gps)
+        {
+            time_t sys_now = 0;
+            time(&sys_now);
+            bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
+            if (!gps_rtc_sync_enabled || sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S))
+            {
+                // In case time got synchronized via Mesh or other source in the meantime
+                if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+                {
+                    ESP_LOGI(TAG, "System time is valid or GPS RTC Sync disabled, putting GPS to sleep");
+                    _gps->setSleep(true);
+                }
+                _gps_sleep_delay_active = false;
+            }
+            else if (millis() - _gps_sleep_delay_start_ms > GPS_PERIODIC_SYNC_TIMEOUT_MS)
+            {
+                if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+                {
+                    ESP_LOGW(TAG, "GPS sleep delay timed out without bootstrap, putting GPS to sleep");
+                    _gps->setSleep(true);
+                }
+                _gps_sleep_delay_active = false;
+            }
+        }
+
+        // Handle periodic GPS RTC sync when GPS is sleeping (POSITION_OFF or POSITION_FIXED)
+        if (_gps && (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED))
+        {
+            uint32_t now = millis();
+            bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
+            if (!_gps_periodic_sync_active)
+            {
+                if (gps_rtc_sync_enabled && (now - _last_gps_periodic_sync_ms >= GPS_PERIODIC_SYNC_INTERVAL_S * 1000))
+                {
+                    ESP_LOGI(TAG, "Starting periodic GPS RTC sync");
+                    _gps->setSleep(false);
+                    _gps_periodic_sync_active = true;
+                    _gps_periodic_sync_start_ms = now;
+                }
+                else if (!gps_rtc_sync_enabled)
+                {
+                    // Reset timer so we don't check again immediately
+                    _last_gps_periodic_sync_ms = now;
+                }
+            }
+            else
+            {
+                if (!gps_rtc_sync_enabled || (now - _gps_periodic_sync_start_ms > GPS_PERIODIC_SYNC_TIMEOUT_MS))
+                {
+                    ESP_LOGW(TAG, "Periodic GPS RTC sync timed out or disabled, putting GPS back to sleep");
+                    _gps->setSleep(true);
+                    _gps_periodic_sync_active = false;
+                    _last_gps_periodic_sync_ms = now;
+                }
+            }
+        }
+
         // Process radio events
         if (_radio)
         {
@@ -583,9 +644,21 @@ namespace Mesh
             }
             else if (now - _last_tx_start_ms > TX_WATCHDOG_TIMEOUT_MS)
             {
-                ESP_LOGW(TAG, "TX watchdog fired, forcing RX restart (%lu - %lu)", now, _last_tx_start_ms);
+                ESP_LOGW(TAG, "TX watchdog fired, resetting and reinitializing radio (%lu - %lu)", now, _last_tx_start_ms);
                 _tx_in_progress = false;
-                _radio->startReceive(0);
+                _cad_in_progress = false;
+                _radio->deinit();
+                if (_radio->init())
+                {
+                    applyModemConfig();
+                    _radio->setEventCallback([this](HAL::RadioEvent event) { onRadioEvent(event); });
+                    _radio->startReceive(0);
+                    ESP_LOGI(TAG, "Radio successfully recovered and restarted");
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Failed to reinitialize radio after watchdog trigger");
+                }
             }
         }
 
@@ -1037,54 +1110,143 @@ namespace Mesh
         if (_gps && _gps_queue)
         {
             _gps->setDataCallback([this](const HAL::GpsData& data) { xQueueOverwrite(_gps_queue, &data); });
+
+            _last_gps_periodic_sync_ms = millis();
+
+            // Apply initial sleep state based on config, but keep GPS awake
+            // on boot to bootstrap system time if not already done.
+            if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+            {
+                time_t sys_now = 0;
+                time(&sys_now);
+                bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
+                if (_hal->isGPSAdjusted() || sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S) || !gps_rtc_sync_enabled)
+                {
+                    _gps->setSleep(true);
+                    _gps_sleep_delay_active = false;
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "Delaying GPS sleep to allow RTC bootstrap");
+                    _gps->setSleep(false);
+                    _gps_sleep_delay_active = true;
+                    _gps_sleep_delay_start_ms = millis();
+                }
+            }
+            else
+            {
+                _gps->setSleep(false);
+                _gps_sleep_delay_active = false;
+            }
         }
     }
 
     void MeshService::_onGpsData(const HAL::GpsData& data)
     {
-        // blonk yellow led
-        _hal->led()->blink_once(HAL::Color(255, 255, 0), 100);
+        // blink yellow led only if we have a fix
+        if (data.has_fix)
+        {
+            _hal->led()->blink_once(HAL::Color(255, 255, 0), 100);
+        }
+
+        time_t sys_now = 0;
+        time(&sys_now);
+
+        ESP_LOGD("GPS_SYNC", "_onGpsData: time=%lu, has_fix=%d, sys_now=%lu, BUILD_TIMESTAMP=%lu, slack=%lu, threshold=%lu",
+                 (unsigned long)data.time, data.has_fix, (unsigned long)sys_now,
+                 (unsigned long)BUILD_TIMESTAMP, (unsigned long)BUILD_TIME_SLACK_S,
+                 (unsigned long)(BUILD_TIMESTAMP - BUILD_TIME_SLACK_S));
+
         // BUILD_TIMESTAMP is derived from the local build clock; GPS time is UTC.
         // Allow timezone/build-latency slack so valid UTC fixes are not rejected.
         if ((time_t)data.time <= BUILD_TIMESTAMP - BUILD_TIME_SLACK_S)
         {
+            ESP_LOGD("GPS_SYNC", "Rejected GPS time: %lu is older than/equal to threshold %lu",
+                     (unsigned long)data.time, (unsigned long)(BUILD_TIMESTAMP - BUILD_TIME_SLACK_S));
             return;
         }
-        time_t sys_now = 0;
-        time(&sys_now);
+
+        bool is_sys_time_valid = (sys_now > BUILD_TIMESTAMP - BUILD_TIME_SLACK_S);
+
         time_t drift = (time_t)data.time - sys_now;
         if (drift < 0)
             drift = -drift;
-        // check if gps has fix
-        if (data.has_fix)
+
+        // We sync if:
+        // 1. System clock is currently invalid/unset (RTC bootstrap) AND gps_rtc_sync is enabled
+        // 2. We have a live GPS fix and the drift is significant
+        // 3. We are running a periodic RTC sync from the GPS's crystal RTC and drift is significant AND gps_rtc_sync is enabled
+        bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
+        bool should_sync = (!is_sys_time_valid && gps_rtc_sync_enabled) || 
+                           (data.has_fix && (drift > GPS_SIGNIFICANT_DRIFT_S)) ||
+                           (_gps_periodic_sync_active && gps_rtc_sync_enabled && (drift > GPS_SIGNIFICANT_DRIFT_S));
+
+        ESP_LOGD("GPS_SYNC", "is_sys_time_valid=%d, drift=%ld, should_sync=%d",
+                 is_sys_time_valid, (long)drift, should_sync);
+
+        if (should_sync)
         {
-            if (!_hal->isGPSAdjusted() || drift > GPS_SIGNIFICANT_DRIFT_S)
-            {
-                struct timeval tv = {.tv_sec = (time_t)data.time, .tv_usec = 0};
-                settimeofday(&tv, nullptr);
-                if (!_hal->isGPSAdjusted())
-                {
-                    _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
-                    _hal->setGPSAdjusted(true);
-                }
-                // dump new system date abd time dd.MM.yyyy HH:mm:ss
-                struct tm timeinfo;
-                localtime_r(&tv.tv_sec, &timeinfo);
-                ESP_LOGI(TAG,
-                         "System time adjusted from GPS: %lu (drift: %lds) = %02d.%02d.%04d %02d:%02d:%02d",
-                         (unsigned long)data.time,
-                         (long)drift,
-                         timeinfo.tm_mday,
-                         timeinfo.tm_mon + 1,
-                         timeinfo.tm_year + 1900,
-                         timeinfo.tm_hour,
-                         timeinfo.tm_min,
-                         timeinfo.tm_sec);
-            }
+            struct timeval tv = {.tv_sec = (time_t)data.time, .tv_usec = 0};
+            settimeofday(&tv, nullptr);
+
+            // dump new system date abd time dd.MM.yyyy HH:mm:ss
+            struct tm timeinfo;
+            localtime_r(&tv.tv_sec, &timeinfo);
+            ESP_LOGI(TAG,
+                     "System time adjusted from GPS: %lu (drift: %lds) = %02d.%02d.%04d %02d:%02d:%02d",
+                     (unsigned long)data.time,
+                     (long)drift,
+                     timeinfo.tm_mday,
+                     timeinfo.tm_mon + 1,
+                     timeinfo.tm_year + 1900,
+                     timeinfo.tm_hour,
+                     timeinfo.tm_min,
+                     timeinfo.tm_sec);
+
+        }
+
+        // Play notification sound on initial GPS lock (transition to live fix)
+        if (data.has_fix && !_hal->isGPSAdjusted())
+        {
+            _hal->playNotificationSound(HAL::Hal::NotificationSound::GPS);
+        }
+
+        // Set the GPS adjusted flag to indicate whether we currently have a live lock.
+        // This affects the satellite icon in the status bar.
+        if (_config.position == MeshConfig::POSITION_GPS)
+        {
+            _hal->setGPSAdjusted(data.has_fix);
         }
         else
         {
             _hal->setGPSAdjusted(false);
+        }
+
+        // If we were delaying sleep for RTC bootstrap, and we now have a valid system clock,
+        // put the GPS to sleep if position config requires it.
+        if (_gps_sleep_delay_active && _gps &&
+            (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED))
+        {
+            time(&sys_now);
+            if (sys_now > BUILD_TIMESTAMP - BUILD_TIME_SLACK_S)
+            {
+                ESP_LOGI(TAG, "RTC bootstrap complete, putting GPS to sleep");
+                _gps->setSleep(true);
+                _gps_sleep_delay_active = false;
+            }
+        }
+
+        // If we were performing a periodic RTC sync, and we received a valid time,
+        // put the GPS back to sleep and update the sync state.
+        if (_gps_periodic_sync_active && _gps)
+        {
+            ESP_LOGI(TAG, "Periodic RTC sync complete, putting GPS back to sleep");
+            if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+            {
+                _gps->setSleep(true);
+            }
+            _gps_periodic_sync_active = false;
+            _last_gps_periodic_sync_ms = millis();
         }
     }
 
@@ -1184,11 +1346,48 @@ namespace Mesh
         }
 
         // Position configuration
+        bool position_mode_changed = (_config.position != config.position);
         _config.position = config.position;
         _config.fixed_latitude = config.fixed_latitude;
         _config.fixed_longitude = config.fixed_longitude;
         _config.fixed_altitude = config.fixed_altitude;
         _config.position_flags = config.position_flags;
+
+        if (position_mode_changed)
+        {
+            bool was_gps_adjusted = _hal->isGPSAdjusted();
+            _hal->setGPSAdjusted(false);
+
+            if (_gps)
+            {
+                _gps_periodic_sync_active = false;
+                _last_gps_periodic_sync_ms = millis();
+
+                if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+                {
+                    time_t sys_now = 0;
+                    time(&sys_now);
+                    bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
+                    if (was_gps_adjusted || sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S) || !gps_rtc_sync_enabled)
+                    {
+                        _gps->setSleep(true);
+                        _gps_sleep_delay_active = false;
+                    }
+                    else
+                    {
+                        ESP_LOGI(TAG, "Delaying GPS sleep after mode change to allow RTC bootstrap");
+                        _gps->setSleep(false);
+                        _gps_sleep_delay_active = true;
+                        _gps_sleep_delay_start_ms = millis();
+                    }
+                }
+                else
+                {
+                    _gps->setSleep(false);
+                    _gps_sleep_delay_active = false;
+                }
+            }
+        }
 
         // Neighbor info module
         _config.neighborinfo_enabled = config.neighborinfo_enabled;
@@ -2639,6 +2838,60 @@ namespace Mesh
                  (unsigned long)position.sats_in_view,
                  (unsigned long)position.time);
 
+        // --- Mesh Time Sync ---
+        // If we don't have a valid local time (e.g. GPS is off/sleeping and RTC lost state),
+        // we can try to bootstrap it from incoming position packets on the primary channel.
+        // Allow up to 24 hours (86400s) of timezone difference in the build timestamp
+        bool mesh_time_sync_enabled = _hal->settings()->getBool("system", "mesh_time_sync");
+        if (mesh_time_sync_enabled && position.time > (BUILD_TIMESTAMP - 86400))
+        {
+            // Only trust time from the primary channel
+            const meshtastic_Channel* ch = _nodedb ? _nodedb->getChannel(packet.channel) : nullptr;
+            if (ch && ch->role == meshtastic_Channel_Role_PRIMARY)
+            {
+                // Only trust time if the sender got it from a reliable source (GPS or internal RTC), not manual
+                // If it's UNSET (0), we'll still accept it if we have NO time at all (stuck in 1970) as a desperate fallback
+                time_t sys_now = 0;
+                time(&sys_now);
+                
+                if (position.location_source >= meshtastic_Position_LocSource_LOC_INTERNAL || sys_now < (BUILD_TIMESTAMP - 86400))
+                {
+                    time_t drift = (time_t)position.time - sys_now;
+                    if (drift < 0) drift = -drift;
+
+                    // Sync if we've drifted significantly or are stuck at epoch
+                    if (drift > GPS_SIGNIFICANT_DRIFT_S || sys_now < (BUILD_TIMESTAMP - 86400))
+                    {
+                        struct timeval tv = {.tv_sec = (time_t)position.time, .tv_usec = 0};
+                        settimeofday(&tv, nullptr);
+                        
+                        struct tm timeinfo;
+                        localtime_r(&tv.tv_sec, &timeinfo);
+                        ESP_LOGI(TAG,
+                                 "System time synced from Mesh (Node 0x%08lX): %02d.%02d.%04d %02d:%02d:%02d",
+                                 (unsigned long)packet.from,
+                                 timeinfo.tm_mday,
+                                 timeinfo.tm_mon + 1,
+                                 timeinfo.tm_year + 1900,
+                                 timeinfo.tm_hour,
+                                 timeinfo.tm_min,
+                                 timeinfo.tm_sec);
+                                 
+                        // Note: We deliberately do NOT call _hal->setGPSAdjusted(true) here
+                        // to avoid showing the satellite icon when we only have mesh time.
+                    }
+                }
+                else
+                {
+                    ESP_LOGD(TAG, "Ignoring mesh time sync: unreliable source %d", position.location_source);
+                }
+            }
+        }
+        else if (position.time > 0)
+        {
+            ESP_LOGW(TAG, "Ignoring mesh time sync: timestamp %lu is too old (build=%lu)", (unsigned long)position.time, (unsigned long)BUILD_TIMESTAMP);
+        }
+
         // Update node database with position
         if (_nodedb)
         {
@@ -3626,14 +3879,29 @@ namespace Mesh
                 position.has_altitude = true;
                 position.altitude = _config.fixed_altitude;
             }
+            if (pf & meshtastic_Config_PositionConfig_PositionFlags_SEQ_NO)
+            {
+                position.seq_number = seq_number++;
+            }
+            if (pf & meshtastic_Config_PositionConfig_PositionFlags_TIMESTAMP)
+            {
+                time_t sys_now = 0;
+                time(&sys_now);
+                if (sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S))
+                {
+                    position.time = (uint32_t)sys_now;
+                }
+            }
             position.location_source = meshtastic_Position_LocSource_LOC_MANUAL;
 
             has_position = true;
             ESP_LOGI(TAG,
-                     "Sending fixed position: lat=%ld lon=%ld alt=%ld flags=0x%08lx",
+                     "Sending fixed position: lat=%ld lon=%ld alt=%ld time=%lu seq=%lu flags=0x%08lx",
                      (long)position.latitude_i,
                      (long)position.longitude_i,
                      (long)position.altitude,
+                     (unsigned long)position.time,
+                     (unsigned long)position.seq_number,
                      (unsigned long)pf);
         }
         // Otherwise use live GPS if available (POSITION_GPS mode)

@@ -481,6 +481,15 @@ namespace Mesh
         MeshConfig _config;
         MeshState _state;
 
+        // GPS sleep delay for RTC bootstrap
+        bool _gps_sleep_delay_active;
+        uint32_t _gps_sleep_delay_start_ms;
+
+        // GPS periodic RTC sync
+        bool _gps_periodic_sync_active;
+        uint32_t _gps_periodic_sync_start_ms;
+        uint32_t _last_gps_periodic_sync_ms;
+
         // Callbacks
         MessageCallback _message_callback;
         BatteryCallback _battery_callback;

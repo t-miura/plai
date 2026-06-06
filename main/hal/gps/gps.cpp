@@ -25,7 +25,8 @@ namespace HAL
 
     GPS::GPS(int rx_pin, int tx_pin, int uart_num, int baud_rate)
         : _rx_pin(rx_pin), _tx_pin(tx_pin), _uart_num(uart_num), _baud_rate(baud_rate), _initialized(false),
-          _task_handle(nullptr), _task_running(false), _nmea_pos(0), _data{}
+          _task_handle(nullptr), _task_running(false), _is_sleeping(false), _last_sleep_cmd_ms(0),
+          _pending_config_apply(false), _wake_time_ms(0), _nmea_pos(0), _data{}
     {
         memset(_nmea_buf, 0, sizeof(_nmea_buf));
     }
@@ -95,6 +96,19 @@ namespace HAL
         }
 
         _initialized = true;
+
+        // Force wake up GPS module in case it was left in sleep mode from a previous run
+        ESP_LOGI(TAG, "Waking up GPS on init");
+        const char* wake = "\r\n";
+        uart_write_bytes((uart_port_t)_uart_num, wake, 2);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        sendCommand("PCAS12,1");
+        _is_sleeping = false;
+
+        // Trigger asynchronous GPS configuration after boot-up delay
+        _wake_time_ms = millis();
+        _pending_config_apply = true;
+
         ESP_LOGI(TAG, "GPS initialized successfully");
         return true;
     }
@@ -124,6 +138,45 @@ namespace HAL
     }
 
     void GPS::setDataCallback(DataCallback cb) { _data_callback = std::move(cb); }
+
+    void GPS::setSleep(bool sleep)
+    {
+        if (!_initialized)
+        {
+            return;
+        }
+
+        if (sleep)
+        {
+            if (!_is_sleeping)
+            {
+                ESP_LOGI(TAG, "Putting GPS to sleep (max 65535s)");
+                sendCommand("PCAS12,65535");
+                _is_sleeping = true;
+                _last_sleep_cmd_ms = millis();
+                // Clear GPS data since we no longer have an active lock/feed
+                memset((void*)&_data, 0, sizeof(GpsData));
+            }
+        }
+        else
+        {
+            if (_is_sleeping)
+            {
+                ESP_LOGI(TAG, "Waking up GPS");
+                // Send dummy characters to wake up
+                const char* wake = "\r\n";
+                uart_write_bytes((uart_port_t)_uart_num, wake, 2);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                // Send 1s sleep command to force wake-up state transition
+                sendCommand("PCAS12,1");
+                _is_sleeping = false;
+
+                // Trigger asynchronous GPS configuration after wake-up delay
+                _wake_time_ms = millis();
+                _pending_config_apply = true;
+            }
+        }
+    }
 
     GpsData GPS::getData() const
     {
@@ -185,6 +238,31 @@ namespace HAL
 
     void GPS::_process_uart()
     {
+        if (_is_sleeping)
+        {
+            // Periodic re-send of sleep command (every 60 minutes)
+            if (millis() - _last_sleep_cmd_ms > GPS_SLEEP_PERIOD_MS)
+            {
+                sendCommand("PCAS12,65535");
+                _last_sleep_cmd_ms = millis();
+            }
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            return;
+        }
+
+        // Apply configuration asynchronously after GPS module has booted/woken up (1 second delay)
+        if (_pending_config_apply && (millis() - _wake_time_ms >= GPS_CONFIG_DELAY_MS))
+        {
+            _pending_config_apply = false; // Reset first to avoid re-entry
+            ESP_LOGI(TAG, "Applying GPS configuration (1Hz, GGA/RMC only)");
+            sendCommand("PCAS02,1000"); // 1Hz update rate
+            vTaskDelay(pdMS_TO_TICKS(GPS_COMMAND_SPACING_MS));
+            sendCommand("PCAS03,1,0,0,0,1,0,0,0"); // GGA & RMC only
+            vTaskDelay(pdMS_TO_TICKS(GPS_COMMAND_SPACING_MS));
+            sendCommand("PCAS00"); // Save configuration to flash
+            vTaskDelay(pdMS_TO_TICKS(GPS_COMMAND_SPACING_MS));
+        }
+
         uint8_t buf[128];
         int len = uart_read_bytes((uart_port_t)_uart_num, buf, sizeof(buf), pdMS_TO_TICKS(GPS_READ_TIMEOUT_MS));
 
@@ -535,12 +613,9 @@ namespace HAL
             _data.time = _to_unix_time(_data.year, _data.month, _data.day, _data.hour, _data.minute, _data.second);
         }
 
-        // Notify subscriber with a consistent snapshot on every valid fix.
-        // Do NOT also require a valid timestamp here: when the module reports a
-        // position but no usable date/time (time == 0), the consumer
-        // (_onGpsData) still needs the callback and validates the time itself
-        // before adjusting the clock.
-        if (_data.has_fix && _data_callback)
+        // Notify subscriber with a consistent snapshot on every parsed RMC sentence
+        // (even if no satellite lock, to allow RTC time bootstrap).
+        if (_data_callback)
         {
             GpsData snapshot;
             memcpy(&snapshot, (const void*)&_data, sizeof(GpsData));

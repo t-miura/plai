@@ -37,6 +37,20 @@ bool SDCard::mount(bool format_if_mount_failed)
     }
     ESP_LOGI(TAG, "Mounting SD card");
 
+    // Manually configure CS pin (GPIO 12) with pull-up
+    // Some cards are sensitive to floating CS during bus init
+    gpio_config_t cs_cfg = {};
+    cs_cfg.pin_bit_mask = (1ULL << PIN_NUM_CS);
+    cs_cfg.mode = GPIO_MODE_OUTPUT;
+    cs_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    cs_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    cs_cfg.intr_type = GPIO_INTR_DISABLE;
+    gpio_config(&cs_cfg);
+    gpio_set_level((gpio_num_t)PIN_NUM_CS, 1);
+
+    // Give some time for power to stabilize
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     spi_bus_config_t bus_cfg;
     bus_cfg.mosi_io_num = PIN_NUM_MOSI;
     bus_cfg.miso_io_num = PIN_NUM_MISO;
@@ -45,7 +59,7 @@ bool SDCard::mount(bool format_if_mount_failed)
     bus_cfg.quadhd_io_num = -1;
     bus_cfg.data4_io_num = -1, bus_cfg.data5_io_num = -1, bus_cfg.data6_io_num = -1, bus_cfg.data7_io_num = -1,
     bus_cfg.max_transfer_sz = 4092;
-    bus_cfg.flags = (SPICOMMON_BUSFLAG_SCLK | SPICOMMON_BUSFLAG_MOSI);
+    bus_cfg.flags = (SPICOMMON_BUSFLAG_SCLK | SPICOMMON_BUSFLAG_MOSI | SPICOMMON_BUSFLAG_MISO);
     bus_cfg.isr_cpu_id = ESP_INTR_CPU_AFFINITY_AUTO;
     bus_cfg.intr_flags = 0;
     esp_err_t ret = spi_bus_initialize((spi_host_device_t)host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
@@ -67,6 +81,12 @@ bool SDCard::mount(bool format_if_mount_failed)
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = PIN_NUM_CS;
     slot_config.host_id = (spi_host_device_t)host.slot;
+
+    // Set frequency to 10MHz for better stability.
+    // WARNING: Do not increase to 20MHz on Cardputer ADV, as the shared SPI bus lines
+    // will experience signal crosstalk and reflections that cause the SX1262 LoRa radio
+    // to receive corrupted command bytes and hang (leading to TX queue full).
+    host.max_freq_khz = 10000;
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {.format_if_mount_failed = format_if_mount_failed,
                                                      .max_files = 5,
@@ -158,3 +178,4 @@ uint64_t SDCard::get_capacity()
     }
     return ((uint64_t)card->csd.capacity) * card->csd.sector_size;
 }
+

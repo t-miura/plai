@@ -21,6 +21,17 @@
 
 static const char* TAG = "MESH_DATA";
 
+static FILE* fopen_nobuf(const char* path, const char* mode)
+{
+    FILE* f = ::fopen(path, mode);
+    if (f)
+    {
+        setvbuf(f, NULL, _IONBF, 0);
+    }
+    return f;
+}
+#define fopen fopen_nobuf
+
 namespace Mesh
 {
 
@@ -521,12 +532,14 @@ namespace Mesh
 
     bool MeshDataStore::loadIndex()
     {
-        FILE* file = fopen(MSG_INDEX_FILE, "rb");
+        FILE* file = ::fopen(MSG_INDEX_FILE, "rb");
         if (!file)
         {
             ESP_LOGW(TAG, "No message index file found");
             return false;
         }
+        char buf[512];
+        setvbuf(file, buf, _IOFBF, sizeof(buf));
 
         uint32_t magic = 0, version = 0, count = 0;
         if (fread(&magic, sizeof(magic), 1, file) != 1 || fread(&version, sizeof(version), 1, file) != 1 ||
@@ -577,12 +590,14 @@ namespace Mesh
 
     bool MeshDataStore::saveIndex()
     {
-        FILE* file = fopen(MSG_INDEX_FILE, "wb");
+        FILE* file = ::fopen(MSG_INDEX_FILE, "wb");
         if (!file)
         {
             ESP_LOGE(TAG, "Failed to open %s for writing", MSG_INDEX_FILE);
             return false;
         }
+        char buf[512];
+        setvbuf(file, buf, _IOFBF, sizeof(buf));
 
         uint32_t magic = MSG_INDEX_MAGIC;
         uint32_t version = MSG_FILE_VERSION;
@@ -1070,26 +1085,6 @@ namespace Mesh
             _channel_activity.erase(_channel_activity.begin());
     }
 
-    void MeshDataStore::addRssiPoint(uint32_t node_id, int16_t rssi)
-    {
-        GraphPoint point;
-        point.timestamp_ms = (uint32_t)millis();
-        point.value = (float)rssi;
-
-        auto& history = _rssi_history[node_id];
-        history.push_back(point);
-
-        while (history.size() > MAX_GRAPH_POINTS)
-            history.erase(history.begin());
-    }
-
-    std::vector<GraphPoint> MeshDataStore::getRssiHistory(uint32_t node_id) const
-    {
-        auto it = _rssi_history.find(node_id);
-        if (it != _rssi_history.end())
-            return it->second;
-        return {};
-    }
 
     //--------------------------------------------------------------------------
     // Traceroute File Storage

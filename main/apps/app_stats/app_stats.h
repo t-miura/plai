@@ -97,7 +97,7 @@ namespace MOONCAKE::APPS
     {
         std::string getAppName() override { return "STATS"; }
         std::string getAppDesc() override { return "Network statistics"; }
-        void* getAppIcon() override { return (void*)(new AppIcon_t(image_data_app_stats, nullptr)); }
+        void* getAppIcon() override { static AppIcon_t icon(image_data_app_stats, nullptr); return (void*)&icon; }
         void* newApp() override { return new AppStats; }
         void deleteApp(void* app) override { delete (AppStats*)app; }
     };

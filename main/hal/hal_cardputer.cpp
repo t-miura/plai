@@ -171,6 +171,7 @@ static const EmojiCacheEntry* emoji_cache_lookup(uint32_t code)
     FILE* f = fopen(path, "rb");
     if (f)
     {
+        setbuf(f, nullptr);
         fseek(f, 0, SEEK_END);
         long sz = ftell(f);
         if (sz > 24 && sz < 64 * 1024)
