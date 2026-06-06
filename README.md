@@ -480,37 +480,8 @@ Built from scratch on ESP-IDF — not a fork of the Meshtastic firmware.
 
 ### Prerequisites
 
-- [ESP-IDF v5.5.x](https://docs.espressif.com/projects/esp-idf/en/v5.5.4/esp32s3/get-started/) (project tested with **5.5.4**)
+- [ESP-IDF v5.5.x](https://docs.espressif.com/projects/esp-idf/en/v5.5.3/esp32s3/get-started/) (project tested with **5.5.3**)
 - ESP32-S3 target
-- [Nanopb](https://jpa.kapsi.fi/nanopb/) generator **0.4.9.x** — required to generate the protobuf sources (see below)
-
-### Clone
-
-The Meshtastic `.proto` definitions are included as a git submodule in `protobufs/`, so clone recursively:
-
-```bash
-git clone --recursive https://github.com/d4rkmen/plai
-```
-
-If you already cloned without `--recursive`, pull the submodule in:
-
-```bash
-git submodule update --init --recursive
-```
-
-### Generate protobuf sources
-
-The Nanopb C++ sources under `main/meshtastic/` are generated from the `protobufs/` submodule and are **not** checked in, so you must generate them once after cloning (and again whenever the submodule is updated). On Windows:
-
-```bat
-regen-protos.bat
-```
-
-The script invokes the Nanopb `protoc` generator over `protobufs/meshtastic/*.proto` and writes the `*.pb.cpp` / `*.pb.h` files into `main/meshtastic/`. Edit the `protoc.exe` path inside `regen-protos.bat` to point at your local Nanopb 0.4.9.x generator.
-
-### Configure
-
-Project-wide, target-agnostic configuration lives in `sdkconfig.defaults` and is applied automatically on the first build, so the generated `sdkconfig` always matches the intended setup. As the project moves toward multiple targets, keep shared custom options in `sdkconfig.defaults`; any target-specific overrides belong in `sdkconfig.defaults.<target>` (e.g. `sdkconfig.defaults.esp32s3`).
 
 ### Build & Flash
 
@@ -567,18 +538,15 @@ Plai/
 │   │   ├── node_db.*          # Node database (SD-backed)
 │   │   ├── mesh_data.*        # Message store & packet log
 │   │   └── packet_router.*    # Priority TX/RX queues
-│   ├── meshtastic/            # Generated Nanopb sources (from protobufs/, git-ignored)
+│   ├── meshtastic/            # Protobuf definitions (Nanopb)
 │   ├── settings/              # NVS settings with cache
 │   └── main.cpp               # Entry point
 ├── map/
 │   └── download_osm_tiles.py  # OSM tile downloader for offline map
-├── protobufs/                 # Meshtastic .proto definitions (git submodule)
 ├── components/
 │   ├── LovyanGFX/             # Display graphics library
 │   ├── mooncake/              # App framework
 │   └── Nanopb/                # Protocol Buffers
-├── regen-protos.bat           # Regenerates main/meshtastic/ from protobufs/
-├── sdkconfig.defaults         # Project-wide build configuration
 └── Kconfig.projbuild          # menuconfig HAL options
 ```
 
