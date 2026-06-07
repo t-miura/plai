@@ -78,7 +78,32 @@ namespace SETTINGS
              "",
              "Timezone offset from GMT",
              [](SettingItem_t& item) { applyTimezone(item.value); }},
-            {"gps_rtc_sync", "GPS RTC Sync", TYPE_BOOL, "true", "true", "", "", "Sync time from GPS module's RTC on boot/periodically"},
+            {"gps_rtc_sync",
+             "GPS RTC Sync",
+             TYPE_BOOL,
+             "true",
+             "true",
+             "",
+             "",
+             "Sync time from GPS module's RTC on boot/periodically",
+             [this](SettingItem_t& item)
+             {
+                 if (_hal && _hal->mesh())
+                     _hal->mesh()->applyGpsSleepSetting();
+             }},
+            {"gps_sleep",
+             "GPS Sleep",
+             TYPE_BOOL,
+             "true",
+             "true",
+             "",
+             "",
+             "Allow GPS module to sleep when not used for Position",
+             [this](SettingItem_t& item)
+             {
+                 if (_hal && _hal->mesh())
+                     _hal->mesh()->applyGpsSleepSetting();
+             }},
             {"mesh_time_sync", "Mesh Time Sync", TYPE_BOOL, "true", "true", "", "", "Sync time from incoming Mesh position packets"},
             {"map_style",
              "Map style",

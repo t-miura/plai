@@ -26,7 +26,7 @@ namespace HAL
     GPS::GPS(int rx_pin, int tx_pin, int uart_num, int baud_rate)
         : _rx_pin(rx_pin), _tx_pin(tx_pin), _uart_num(uart_num), _baud_rate(baud_rate), _initialized(false),
           _task_handle(nullptr), _task_running(false), _is_sleeping(false), _last_sleep_cmd_ms(0),
-          _pending_config_apply(false), _wake_time_ms(0), _nmea_pos(0), _data{}
+          _pending_config_apply(false), _wake_time_ms(0), _sleep_on_config_applied(false), _nmea_pos(0), _data{}
     {
         memset(_nmea_buf, 0, sizeof(_nmea_buf));
     }
@@ -148,6 +148,13 @@ namespace HAL
 
         if (sleep)
         {
+            if (_pending_config_apply)
+            {
+                ESP_LOGI(TAG, "Deferring sleep request until configuration is applied");
+                _sleep_on_config_applied = true;
+                return;
+            }
+
             if (!_is_sleeping)
             {
                 ESP_LOGI(TAG, "Putting GPS to sleep (max 65535s)");
@@ -160,6 +167,7 @@ namespace HAL
         }
         else
         {
+            _sleep_on_config_applied = false; // Cancel any deferred sleep
             if (_is_sleeping)
             {
                 ESP_LOGI(TAG, "Waking up GPS");
@@ -170,10 +178,6 @@ namespace HAL
                 // Send 1s sleep command to force wake-up state transition
                 sendCommand("PCAS12,1");
                 _is_sleeping = false;
-
-                // Trigger asynchronous GPS configuration after wake-up delay
-                _wake_time_ms = millis();
-                _pending_config_apply = true;
             }
         }
     }
@@ -261,6 +265,12 @@ namespace HAL
             vTaskDelay(pdMS_TO_TICKS(GPS_COMMAND_SPACING_MS));
             sendCommand("PCAS00"); // Save configuration to flash
             vTaskDelay(pdMS_TO_TICKS(GPS_COMMAND_SPACING_MS));
+
+            if (_sleep_on_config_applied)
+            {
+                _sleep_on_config_applied = false;
+                setSleep(true);
+            }
         }
 
         uint8_t buf[128];

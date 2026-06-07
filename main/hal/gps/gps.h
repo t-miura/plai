@@ -229,6 +229,7 @@ namespace HAL
         uint32_t _last_sleep_cmd_ms;
         volatile bool _pending_config_apply;
         uint32_t _wake_time_ms;
+        volatile bool _sleep_on_config_applied;
 
         // NMEA parser state
         char _nmea_buf[128]; // Current NMEA sentence buffer
