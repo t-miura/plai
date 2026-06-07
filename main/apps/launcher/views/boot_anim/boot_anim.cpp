@@ -39,7 +39,7 @@ void Launcher::_boot_anim()
     _data.hal->display()->drawRightString(_data.hal->type().c_str(), pos_x, pos_y);
     _data.hal->display()->setFont(FONT_16);
     _data.hal->display()->setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-    _data.hal->display()->drawRightString("Plai v" BUILD_NUMBER, pos_x, pos_y + 14);
+    _data.hal->display()->drawRightString("v" BUILD_NUMBER, pos_x, pos_y + 14);
     // waiting for user to release keys
     _data.hal->display()->setFont(FONT_16);
     _data.hal->display()->setTextSize(1);
