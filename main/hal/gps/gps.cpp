@@ -50,7 +50,7 @@ namespace HAL
             .stop_bits = UART_STOP_BITS_1,
             .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
             .rx_flow_ctrl_thresh = 0,
-            .source_clk = UART_SCLK_DEFAULT,
+            .source_clk = UART_SCLK_XTAL,
         };
 
         esp_err_t err = uart_param_config((uart_port_t)_uart_num, &uart_config);
@@ -138,6 +138,7 @@ namespace HAL
     }
 
     void GPS::setDataCallback(DataCallback cb) { _data_callback = std::move(cb); }
+    void GPS::setSleepCallback(SleepCallback cb) { _sleep_callback = std::move(cb); }
 
     void GPS::setSleep(bool sleep)
     {
@@ -163,6 +164,10 @@ namespace HAL
                 _last_sleep_cmd_ms = millis();
                 // Clear GPS data since we no longer have an active lock/feed
                 memset((void*)&_data, 0, sizeof(GpsData));
+                if (_sleep_callback)
+                {
+                    _sleep_callback(true);
+                }
             }
         }
         else
@@ -178,6 +183,10 @@ namespace HAL
                 // Send 1s sleep command to force wake-up state transition
                 sendCommand("PCAS12,1");
                 _is_sleeping = false;
+                if (_sleep_callback)
+                {
+                    _sleep_callback(false);
+                }
             }
         }
     }

@@ -10,6 +10,7 @@
  */
 #include "hal.h"
 #include "common_define.h"
+#include "esp_pm.h"
 
 #define RGB_LED_GPIO 21
 
@@ -57,6 +58,12 @@ namespace HAL
         void _init_gps();
 #endif
         void _init_mesh();
+        
+        // Power Management
+        esp_pm_lock_handle_t _cpu_lock = nullptr;
+        bool _cpu_lock_acquired = false;
+        void _init_power_management();
+        void _update_power_management();
 
     public:
         HalCardputer(SETTINGS::Settings* settings) : Hal(settings) {}
@@ -87,6 +94,7 @@ namespace HAL
          */
         void updateMesh() override;
         bool hasPendingTx() override;
+        void onDisplaySleepChanged(bool sleeping) override;
 
 #if HAL_USE_SPEAKER
         void playErrorSound() override { _speaker->playWav(error_wav_start, error_wav_end - error_wav_start); }
