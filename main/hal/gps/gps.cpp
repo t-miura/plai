@@ -170,10 +170,6 @@ namespace HAL
                 // Send 1s sleep command to force wake-up state transition
                 sendCommand("PCAS12,1");
                 _is_sleeping = false;
-
-                // Trigger asynchronous GPS configuration after wake-up delay
-                _wake_time_ms = millis();
-                _pending_config_apply = true;
             }
         }
     }
