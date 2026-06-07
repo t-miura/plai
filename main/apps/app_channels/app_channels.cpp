@@ -277,7 +277,7 @@ void AppChannels::onRunning()
 void AppChannels::onDestroy()
 {
     UTILS::SCROLL_TEXT::scroll_text_free(&_data.desc_scroll_ctx);
-    hl_text_free(&_data.hint_hl_ctx);
+    UTILS::HL_TEXT::hl_text_free(&_data.hint_hl_ctx);
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
