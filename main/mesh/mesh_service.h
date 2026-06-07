@@ -273,6 +273,11 @@ namespace Mesh
         void setGps(HAL::GPS* gps);
 
         /**
+         * @brief Apply GPS sleep configuration from system settings
+         */
+        void applyGpsSleepSetting();
+
+        /**
          * @brief Set battery info callback (for device telemetry)
          * @param callback Callback returning BatteryInfo
          */

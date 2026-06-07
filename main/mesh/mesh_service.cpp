@@ -583,8 +583,11 @@ namespace Mesh
                 // In case time got synchronized via Mesh or other source in the meantime
                 if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
                 {
-                    ESP_LOGI(TAG, "System time is valid or GPS RTC Sync disabled, putting GPS to sleep");
-                    _gps->setSleep(true);
+                    if (_hal->settings()->getBool("system", "gps_sleep"))
+                    {
+                        ESP_LOGI(TAG, "System time is valid or GPS RTC Sync disabled, putting GPS to sleep");
+                        _gps->setSleep(true);
+                    }
                 }
                 _gps_sleep_delay_active = false;
             }
@@ -592,15 +595,19 @@ namespace Mesh
             {
                 if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
                 {
-                    ESP_LOGW(TAG, "GPS sleep delay timed out without bootstrap, putting GPS to sleep");
-                    _gps->setSleep(true);
+                    if (_hal->settings()->getBool("system", "gps_sleep"))
+                    {
+                        ESP_LOGW(TAG, "GPS sleep delay timed out without bootstrap, putting GPS to sleep");
+                        _gps->setSleep(true);
+                    }
                 }
                 _gps_sleep_delay_active = false;
             }
         }
 
         // Handle periodic GPS RTC sync when GPS is sleeping (POSITION_OFF or POSITION_FIXED)
-        if (_gps && (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED))
+        if (_gps && (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED) &&
+            _hal->settings()->getBool("system", "gps_sleep"))
         {
             uint32_t now = millis();
             bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
@@ -1174,15 +1181,28 @@ namespace Mesh
 
             _last_gps_periodic_sync_ms = millis();
 
-            // Apply initial sleep state based on config, but keep GPS awake
-            // on boot to bootstrap system time if not already done.
-            if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+            applyGpsSleepSetting();
+        }
+    }
+
+    void MeshService::applyGpsSleepSetting()
+    {
+        if (!_gps)
+            return;
+
+        _gps_periodic_sync_active = false;
+        _last_gps_periodic_sync_ms = millis();
+
+        if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+        {
+            if (_hal->settings()->getBool("system", "gps_sleep"))
             {
                 time_t sys_now = 0;
                 time(&sys_now);
                 bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
                 if (_hal->isGPSAdjusted() || sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S) || !gps_rtc_sync_enabled)
                 {
+                    ESP_LOGI(TAG, "Putting GPS to sleep based on settings");
                     _gps->setSleep(true);
                     _gps_sleep_delay_active = false;
                 }
@@ -1196,9 +1216,16 @@ namespace Mesh
             }
             else
             {
+                ESP_LOGI(TAG, "GPS sleep is disabled. Keeping GPS awake");
                 _gps->setSleep(false);
                 _gps_sleep_delay_active = false;
             }
+        }
+        else
+        {
+            ESP_LOGI(TAG, "Position mode requires GPS. Keeping GPS awake");
+            _gps->setSleep(false);
+            _gps_sleep_delay_active = false;
         }
     }
 
@@ -1238,9 +1265,12 @@ namespace Mesh
         // 2. We have a live GPS fix and the drift is significant
         // 3. We are running a periodic RTC sync from the GPS's crystal RTC and drift is significant AND gps_rtc_sync is enabled
         bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
-        bool should_sync = (!is_sys_time_valid && gps_rtc_sync_enabled) || 
+        bool gps_sleep_allowed = _hal->settings()->getBool("system", "gps_sleep");
+        bool should_sync = gps_rtc_sync_enabled && (
+                           !is_sys_time_valid || 
                            (data.has_fix && (drift > GPS_SIGNIFICANT_DRIFT_S)) ||
-                           (_gps_periodic_sync_active && gps_rtc_sync_enabled && (drift > GPS_SIGNIFICANT_DRIFT_S));
+                           (_gps_periodic_sync_active && (drift > GPS_SIGNIFICANT_DRIFT_S)) ||
+                           (!gps_sleep_allowed && (drift > GPS_SIGNIFICANT_DRIFT_S)));
 
         ESP_LOGD("GPS_SYNC", "is_sys_time_valid=%d, drift=%ld, should_sync=%d",
                  is_sys_time_valid, (long)drift, should_sync);
@@ -1302,7 +1332,8 @@ namespace Mesh
         if (_gps_periodic_sync_active && _gps)
         {
             ESP_LOGI(TAG, "Periodic RTC sync complete, putting GPS back to sleep");
-            if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
+            if ((_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED) &&
+                _hal->settings()->getBool("system", "gps_sleep"))
             {
                 _gps->setSleep(true);
             }
@@ -1416,38 +1447,11 @@ namespace Mesh
 
         if (position_mode_changed)
         {
-            bool was_gps_adjusted = _hal->isGPSAdjusted();
-            _hal->setGPSAdjusted(false);
-
             if (_gps)
             {
-                _gps_periodic_sync_active = false;
-                _last_gps_periodic_sync_ms = millis();
-
-                if (_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED)
-                {
-                    time_t sys_now = 0;
-                    time(&sys_now);
-                    bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
-                    if (was_gps_adjusted || sys_now > (BUILD_TIMESTAMP - BUILD_TIME_SLACK_S) || !gps_rtc_sync_enabled)
-                    {
-                        _gps->setSleep(true);
-                        _gps_sleep_delay_active = false;
-                    }
-                    else
-                    {
-                        ESP_LOGI(TAG, "Delaying GPS sleep after mode change to allow RTC bootstrap");
-                        _gps->setSleep(false);
-                        _gps_sleep_delay_active = true;
-                        _gps_sleep_delay_start_ms = millis();
-                    }
-                }
-                else
-                {
-                    _gps->setSleep(false);
-                    _gps_sleep_delay_active = false;
-                }
+                applyGpsSleepSetting();
             }
+            _hal->setGPSAdjusted(false);
         }
 
         // Neighbor info module
