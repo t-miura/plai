@@ -296,6 +296,10 @@ void HalCardputer::init()
 {
     ESP_LOGI(TAG, "HAL init");
 
+    // Reset GPIO interrupt types to prevent level-triggered watchdog lockups from a previous crash/run
+    gpio_reset_pin((gpio_num_t)11);
+    gpio_reset_pin((gpio_num_t)4);
+
 #if HAL_USE_I2C
     _init_i2c();
 #endif
@@ -742,38 +746,12 @@ void HalCardputer::_init_power_management()
     _cpu_lock_acquired = true;
     ESP_LOGI(TAG, "PM Lock acquired (240MHz)");
 
-    // Enable GPIO wakeup
+    // Enable GPIO wakeup globally
     err = esp_sleep_enable_gpio_wakeup();
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to enable GPIO wakeup: %s", esp_err_to_name(err));
     }
-
-    // Configure wakeup pin for keyboard (active-LOW on GPIO 11)
-#if HAL_USE_KEYBOARD
-    err = gpio_wakeup_enable((gpio_num_t)11, GPIO_INTR_LOW_LEVEL);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to enable keyboard wakeup on GPIO 11: %s", esp_err_to_name(err));
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Keyboard wakeup enabled on GPIO 11");
-    }
-#endif
-
-    // Configure wakeup pin for LoRa interrupt (active-HIGH on GPIO 4)
-#if HAL_USE_RADIO
-    err = gpio_wakeup_enable((gpio_num_t)4, GPIO_INTR_HIGH_LEVEL);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to enable LoRa wakeup on GPIO 4: %s", esp_err_to_name(err));
-    }
-    else
-    {
-        ESP_LOGI(TAG, "LoRa wakeup enabled on GPIO 4");
-    }
-#endif
 }
 
 void HalCardputer::_update_power_management()
@@ -795,6 +773,16 @@ void HalCardputer::_update_power_management()
     {
         if (!_cpu_lock_acquired && _cpu_lock)
         {
+            // Disable GPIO wakeup and restore edge triggers BEFORE acquiring CPU lock
+#if HAL_USE_KEYBOARD
+            gpio_wakeup_disable((gpio_num_t)11);
+            gpio_set_intr_type((gpio_num_t)11, GPIO_INTR_ANYEDGE);
+#endif
+#if HAL_USE_RADIO
+            gpio_wakeup_disable((gpio_num_t)4);
+            gpio_set_intr_type((gpio_num_t)4, GPIO_INTR_POSEDGE);
+#endif
+
             esp_pm_lock_acquire(_cpu_lock);
             _cpu_lock_acquired = true;
             ESP_LOGI(TAG, "PM Lock acquired: CPU running at max frequency");
@@ -804,9 +792,18 @@ void HalCardputer::_update_power_management()
     {
         if (_cpu_lock_acquired && _cpu_lock)
         {
+            ESP_LOGI(TAG, "PM Lock released: CPU allowed to sleep");
+
+            // Enable GPIO wakeup and level-triggered interrupts right before releasing lock
+#if HAL_USE_KEYBOARD
+            gpio_wakeup_enable((gpio_num_t)11, GPIO_INTR_LOW_LEVEL);
+#endif
+#if HAL_USE_RADIO
+            gpio_wakeup_enable((gpio_num_t)4, GPIO_INTR_HIGH_LEVEL);
+#endif
+
             esp_pm_lock_release(_cpu_lock);
             _cpu_lock_acquired = false;
-            ESP_LOGI(TAG, "PM Lock released: CPU allowed to sleep");
         }
     }
 }
