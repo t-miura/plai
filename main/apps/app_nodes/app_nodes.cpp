@@ -56,15 +56,6 @@ static constexpr MapStyleColors MAP_STYLES[] = {
 };
 static constexpr size_t MAP_STYLES_COUNT = sizeof(MAP_STYLES) / sizeof(MAP_STYLES[0]);
 
-static const MapStyleColors& _map_get_style(const char* style_name)
-{
-    for (size_t i = 0; i < MAP_STYLES_COUNT; i++)
-    {
-        if (strcmp(MAP_STYLES[i].name, style_name) == 0)
-            return MAP_STYLES[i];
-    }
-    return MAP_STYLES[1];
-}
 
 static const char* HINT_LIST = "[Fn][\u2191][\u2193][\u2190][\u2192][1..8.F.I.T.R.N.P.Q][DEL][ESC]";
 static const char* HINT_LIST_FN = "[\u2191]HOME [\u2193]END [T][F][I][N][B]";
@@ -222,6 +213,24 @@ void AppNodes::onCreate()
     _data.ctrl = false;
     _data.qm_selected_index = 0;
     _data.qm_scroll_offset = 0;
+
+    _data.list_selected_node_id = 0;
+    _data.selected_node_id = 0;
+    _data.detail_scroll = 0;
+
+    // Traceroute state
+    _data.tr_total_count = 0;
+    _data.tr_selected_index = 0;
+    _data.tr_scroll_offset = 0;
+    _data.tr_detail_scroll = 0;
+
+    // Neighbor list state
+    _data.nbr_selected_index = 0;
+    _data.nbr_scroll_offset = 0;
+    _data.nbr_source_node_id = 0;
+
+    // Sorting
+    _data.sort_order = Mesh::SortOrder::NONE;
 
     // Map view state
     _data.map_center_lat = 0;

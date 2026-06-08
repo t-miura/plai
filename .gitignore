@@ -9,7 +9,7 @@ archive
 main/meshtastic/*
 tools
 protobufs
-.log
-.bin
+*.log
+*.bin
 eim_config.toml
 GEMINI.md
