@@ -377,15 +377,6 @@ namespace Mesh
             return false;
         }
 
-        bool computeChannelHash(const Mesh::MeshConfig& config, const uint8_t* key, size_t key_len, uint8_t& out_hash)
-        {
-            const char* channelName = getChannelNameForHash(config);
-            uint8_t nameHash = xorHash(reinterpret_cast<const uint8_t*>(channelName), strlen(channelName));
-            uint8_t keyHash = key_len == 0 ? 0 : xorHash(key, key_len);
-            out_hash = nameHash ^ keyHash;
-            return true;
-        }
-
         bool computeChannelHashFromSettings(const meshtastic_ChannelSettings& settings,
                                             const Mesh::MeshConfig& config,
                                             const uint8_t* key,
