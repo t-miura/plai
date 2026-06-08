@@ -54,6 +54,10 @@ namespace KEYBOARD
     void IRAM_ATTR TCA8418KeyboardReader::gpio_isr_handler(void* arg)
     {
         TCA8418KeyboardReader* reader = static_cast<TCA8418KeyboardReader*>(arg);
+        if (reader->_interrupt_pin >= 0)
+        {
+            gpio_intr_disable((gpio_num_t)reader->_interrupt_pin);
+        }
         reader->_isr_flag = true;
         if (reader->_notify_task)
         {
@@ -155,10 +159,18 @@ namespace KEYBOARD
 
         uint8_t int_stat = 0;
         if (!_tca8418->read_register(TCA8418_REG_INT_STAT, &int_stat))
+        {
+            if (_interrupt_pin >= 0)
+                gpio_intr_enable((gpio_num_t)_interrupt_pin);
             return;
+        }
 
         if (!int_stat)
+        {
+            if (_interrupt_pin >= 0)
+                gpio_intr_enable((gpio_num_t)_interrupt_pin);
             return;
+        }
 
         // FIFO overflow: release events may have been lost, clear stale key state
         if (int_stat & TCA8418_REG_INT_STAT_OVR_FLOW_INT)
@@ -184,6 +196,8 @@ namespace KEYBOARD
 
         // Clear GPI event status, drain any remaining FIFO, and clear all INT_STAT flags
         _tca8418->flush();
+        if (_interrupt_pin >= 0)
+            gpio_intr_enable((gpio_num_t)_interrupt_pin);
     }
 
     TCA8418KeyboardReader::KeyEventRaw_t TCA8418KeyboardReader::getKeyEventRaw(const uint8_t& eventRaw)

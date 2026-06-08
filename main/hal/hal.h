@@ -182,6 +182,7 @@ namespace HAL
             {
                 _display_sleeping = true;
                 _display->sleep();
+                onDisplaySleepChanged(true);
             }
         }
         inline void displayWakeup()
@@ -190,6 +191,7 @@ namespace HAL
             {
                 _display_sleeping = false;
                 _display->wakeup();
+                onDisplaySleepChanged(false);
             }
         }
 #endif
@@ -273,5 +275,6 @@ namespace HAL
         virtual void reboot() {}
         virtual void updateMesh() {}
         virtual bool hasPendingTx() { return false; }
+        virtual void onDisplaySleepChanged(bool sleeping) {}
     };
 } // namespace HAL

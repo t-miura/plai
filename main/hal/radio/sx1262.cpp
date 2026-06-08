@@ -1277,6 +1277,10 @@ namespace HAL
     void IRAM_ATTR SX1262::dio1_isr_handler(void* arg)
     {
         SX1262* radio = static_cast<SX1262*>(arg);
+        if (radio->_pins.dio1 >= 0)
+        {
+            gpio_intr_disable((gpio_num_t)radio->_pins.dio1);
+        }
         radio->_irq_pending = true;
         if (radio->_notify_task)
         {
@@ -1363,6 +1367,10 @@ namespace HAL
         {
             _irq_pending = false;
             handleDio1Interrupt();
+            if (_pins.dio1 >= 0)
+            {
+                gpio_intr_enable((gpio_num_t)_pins.dio1);
+            }
         }
     }
 

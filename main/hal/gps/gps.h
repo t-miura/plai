@@ -74,6 +74,7 @@ namespace HAL
      *        complete fix is available (after each valid RMC sentence).
      */
     using DataCallback = std::function<void(const GpsData&)>;
+    using SleepCallback = std::function<void(bool)>;
 
     /**
      * @brief GPS driver for ATGM336H (NMEA over UART)
@@ -196,6 +197,7 @@ namespace HAL
          * @param cb Callback function (or nullptr)
          */
         void setDataCallback(DataCallback cb);
+        void setSleepCallback(SleepCallback cb);
 
         /**
          * @brief Set GPS module sleep state (low power standby)
@@ -240,6 +242,7 @@ namespace HAL
 
         // Optional callback fired after each valid RMC fix update
         DataCallback _data_callback;
+        SleepCallback _sleep_callback;
 
         // Background task
         static void _uart_task(void* arg);

@@ -27,6 +27,9 @@
 #include "esp_random.h"
 #include "mbedtls/base64.h"
 #include <cstdio>
+#include <driver/gpio.h>
+#include <esp_pm.h>
+#include "esp_sleep.h"
 
 static const char* TAG = "HAL";
 static const char* DEFAULT_CHANNEL_PSK_B64 = "AQ==";
@@ -293,6 +296,10 @@ void HalCardputer::init()
 {
     ESP_LOGI(TAG, "HAL init");
 
+    // Reset GPIO interrupt types to prevent level-triggered watchdog lockups from a previous crash/run
+    gpio_reset_pin((gpio_num_t)11);
+    gpio_reset_pin((gpio_num_t)4);
+
 #if HAL_USE_I2C
     _init_i2c();
 #endif
@@ -325,8 +332,15 @@ void HalCardputer::init()
 #endif
 #if HAL_USE_GPS
     _init_gps();
+    if (_gps)
+    {
+        _gps->setSleepCallback([this](bool sleeping) {
+            _update_power_management();
+        });
+    }
 #endif
     _init_mesh();
+    _init_power_management();
 }
 
 #if HAL_USE_IOEX
@@ -421,6 +435,11 @@ void HalCardputer::_init_mesh()
 
 HalCardputer::~HalCardputer()
 {
+    if (_cpu_lock)
+    {
+        esp_pm_lock_delete(_cpu_lock);
+        _cpu_lock = nullptr;
+    }
     if (_mesh)
     {
         delete _mesh;
@@ -692,4 +711,99 @@ void HalCardputer::reboot()
     led()->off();
 #endif
     esp_restart();
+}
+
+void HalCardputer::onDisplaySleepChanged(bool sleeping)
+{
+    _update_power_management();
+}
+
+void HalCardputer::_init_power_management()
+{
+    ESP_LOGI(TAG, "Initializing Power Management");
+
+    esp_pm_config_t pm_config = {
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = 40, // XTAL frequency
+        .light_sleep_enable = true
+    };
+    esp_err_t err = esp_pm_configure(&pm_config);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to configure power management: %s", esp_err_to_name(err));
+        return;
+    }
+
+    err = esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "plai_cpu", &_cpu_lock);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to create CPU PM lock: %s", esp_err_to_name(err));
+        return;
+    }
+
+    // Acquire lock by default (since screen is on at boot)
+    esp_pm_lock_acquire(_cpu_lock);
+    _cpu_lock_acquired = true;
+    ESP_LOGI(TAG, "PM Lock acquired (240MHz)");
+
+    // Enable GPIO wakeup globally
+    err = esp_sleep_enable_gpio_wakeup();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to enable GPIO wakeup: %s", esp_err_to_name(err));
+    }
+}
+
+void HalCardputer::_update_power_management()
+{
+    bool need_lock = false;
+
+    if (!isDisplaySleeping())
+    {
+        need_lock = true;
+    }
+#if HAL_USE_GPS
+    if (_gps && !_gps->isSleeping())
+    {
+        need_lock = true;
+    }
+#endif
+
+    if (need_lock)
+    {
+        if (!_cpu_lock_acquired && _cpu_lock)
+        {
+            // Disable GPIO wakeup and restore edge triggers BEFORE acquiring CPU lock
+#if HAL_USE_KEYBOARD
+            gpio_wakeup_disable((gpio_num_t)11);
+            gpio_set_intr_type((gpio_num_t)11, GPIO_INTR_ANYEDGE);
+#endif
+#if HAL_USE_RADIO
+            gpio_wakeup_disable((gpio_num_t)4);
+            gpio_set_intr_type((gpio_num_t)4, GPIO_INTR_POSEDGE);
+#endif
+
+            esp_pm_lock_acquire(_cpu_lock);
+            _cpu_lock_acquired = true;
+            ESP_LOGI(TAG, "PM Lock acquired: CPU running at max frequency");
+        }
+    }
+    else
+    {
+        if (_cpu_lock_acquired && _cpu_lock)
+        {
+            ESP_LOGI(TAG, "PM Lock released: CPU allowed to sleep");
+
+            // Enable GPIO wakeup and level-triggered interrupts right before releasing lock
+#if HAL_USE_KEYBOARD
+            gpio_wakeup_enable((gpio_num_t)11, GPIO_INTR_LOW_LEVEL);
+#endif
+#if HAL_USE_RADIO
+            gpio_wakeup_enable((gpio_num_t)4, GPIO_INTR_HIGH_LEVEL);
+#endif
+
+            esp_pm_lock_release(_cpu_lock);
+            _cpu_lock_acquired = false;
+        }
+    }
 }

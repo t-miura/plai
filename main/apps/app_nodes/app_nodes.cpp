@@ -282,6 +282,14 @@ void AppNodes::onRunning()
     bool nodedb_changed = false;
     bool msgstore_changed = false;
     bool view_state_changed = last_view_state != _data.view_state;
+
+    if (view_state_changed && last_view_state == ViewState::NODE_MAP)
+    {
+        _data.hal->settings()->setNumber("system", "map_zoom", _data.map_zoom);
+        const auto& s = MAP_STYLES[_data.map_style_idx];
+        _data.hal->settings()->setString("system", "map_style", s.name);
+        _data.hal->settings()->saveAll();
+    }
     last_view_state = _data.view_state;
 
     if (_data.hal->nodedb())
@@ -469,6 +477,8 @@ void AppNodes::onDestroy()
     // Save to settings
     _data.hal->settings()->setNumber("system", "sort_order", static_cast<int32_t>(_data.sort_order));
     _data.hal->settings()->setNumber("system", "map_zoom", _data.map_zoom);
+    const auto& s = MAP_STYLES[_data.map_style_idx];
+    _data.hal->settings()->setString("system", "map_style", s.name);
     _data.hal->settings()->saveAll();
 
     scroll_text_free(&_data.name_scroll_ctx);
@@ -2235,7 +2245,9 @@ void AppNodes::_handle_node_list_input()
                 _data.selected_node_id = _data.selected_node.info.num;
                 _data.map_center_lat = 0;
                 _data.map_center_lon = 0;
-                _data.map_zoom = MAP_DEFAULT_ZOOM;
+                _data.map_zoom = _data.hal->settings()->getNumber("system", "map_zoom");
+                if (_data.map_zoom < MAP_MIN_ZOOM || _data.map_zoom > MAP_MAX_ZOOM)
+                    _data.map_zoom = MAP_DEFAULT_ZOOM;
 
                 {
                     std::string style = _data.hal->settings()->getString("system", "map_style");
@@ -2350,7 +2362,9 @@ void AppNodes::_handle_node_detail_input()
 
             _data.map_center_lat = 0;
             _data.map_center_lon = 0;
-            _data.map_zoom = MAP_DEFAULT_ZOOM;
+            _data.map_zoom = _data.hal->settings()->getNumber("system", "map_zoom");
+            if (_data.map_zoom < MAP_MIN_ZOOM || _data.map_zoom > MAP_MAX_ZOOM)
+                _data.map_zoom = MAP_DEFAULT_ZOOM;
 
             {
                 std::string style = _data.hal->settings()->getString("system", "map_style");
@@ -4500,8 +4514,6 @@ void AppNodes::_handle_node_map_input()
             _data.map_style_idx = (_data.map_style_idx + 1) % MAP_STYLES_COUNT;
             const auto& s = MAP_STYLES[_data.map_style_idx];
             snprintf(_data.map_tile_dir, sizeof(_data.map_tile_dir), "%s/%s", MAP_BASE_DIR, s.name);
-            _data.hal->settings()->setString("system", "map_style", s.name);
-            _data.hal->settings()->saveAll();
             _data.update_list = true;
         }
         else if (_data.hal->keyboard()->isKeyPressing(KEY_NUM_ENTER))
@@ -4533,8 +4545,6 @@ void AppNodes::_handle_node_map_input()
                     if (_data.map_zoom < MAP_MAX_ZOOM)
                     {
                         _data.map_zoom++;
-                        _data.hal->settings()->setNumber("system", "map_zoom", _data.map_zoom);
-                        _data.hal->settings()->saveAll();
                     }
                 }
                 _data.update_list = true;
@@ -4556,8 +4566,6 @@ void AppNodes::_handle_node_map_input()
                     if (_data.map_zoom > MAP_MIN_ZOOM)
                     {
                         _data.map_zoom--;
-                        _data.hal->settings()->setNumber("system", "map_zoom", _data.map_zoom);
-                        _data.hal->settings()->saveAll();
                     }
                 }
                 _data.update_list = true;
