@@ -227,6 +227,7 @@ void AppNodes::onCreate()
     _data.map_center_lat = 0;
     _data.map_center_lon = 0;
     _data.map_zoom = MAP_DEFAULT_ZOOM;
+    _data.map_style_idx = 1; // Default to "dark" style
 
     // Initialize scrolling text context for node names (FONT_12)
     scroll_text_init_ex(&_data.name_scroll_ctx,
@@ -261,6 +262,23 @@ void AppNodes::onResume()
     // Load sort order and map zoom from settings
     _data.sort_order = static_cast<Mesh::SortOrder>(_data.hal->settings()->getNumber("system", "sort_order"));
     _data.map_zoom = _data.hal->settings()->getNumber("system", "map_zoom");
+    if (_data.map_zoom < MAP_MIN_ZOOM || _data.map_zoom > MAP_MAX_ZOOM)
+        _data.map_zoom = MAP_DEFAULT_ZOOM;
+
+    // Load map style from settings
+    std::string style = _data.hal->settings()->getString("system", "map_style");
+    if (style.empty())
+        style = "dark";
+    _data.map_style_idx = 1; // default to "dark"
+    for (size_t i = 0; i < MAP_STYLES_COUNT; i++)
+    {
+        if (style == MAP_STYLES[i].name)
+        {
+            _data.map_style_idx = (int)i;
+            break;
+        }
+    }
+    snprintf(_data.map_tile_dir, sizeof(_data.map_tile_dir), "%s/%s", MAP_BASE_DIR, MAP_STYLES[_data.map_style_idx].name);
     _data.list_selected_node_id = s_saved_node_id;
 
     _data.update_list = true;
@@ -2253,9 +2271,16 @@ void AppNodes::_handle_node_list_input()
                     std::string style = _data.hal->settings()->getString("system", "map_style");
                     if (style.empty())
                         style = "dark";
-                    snprintf(_data.map_tile_dir, sizeof(_data.map_tile_dir), "%s/%s", MAP_BASE_DIR, style.c_str());
-                    const auto& sc = _map_get_style(style.c_str());
-                    _data.map_style_idx = (int)(&sc - MAP_STYLES);
+                    _data.map_style_idx = 1; // default to "dark"
+                    for (size_t i = 0; i < MAP_STYLES_COUNT; i++)
+                    {
+                        if (style == MAP_STYLES[i].name)
+                        {
+                            _data.map_style_idx = (int)i;
+                            break;
+                        }
+                    }
+                    snprintf(_data.map_tile_dir, sizeof(_data.map_tile_dir), "%s/%s", MAP_BASE_DIR, MAP_STYLES[_data.map_style_idx].name);
                 }
 
                 if (_data.selected_node.info.has_position)
@@ -2370,9 +2395,16 @@ void AppNodes::_handle_node_detail_input()
                 std::string style = _data.hal->settings()->getString("system", "map_style");
                 if (style.empty())
                     style = "dark";
-                snprintf(_data.map_tile_dir, sizeof(_data.map_tile_dir), "%s/%s", MAP_BASE_DIR, style.c_str());
-                const auto& sc = _map_get_style(style.c_str());
-                _data.map_style_idx = (int)(&sc - MAP_STYLES);
+                _data.map_style_idx = 1; // default to "dark"
+                for (size_t i = 0; i < MAP_STYLES_COUNT; i++)
+                {
+                    if (style == MAP_STYLES[i].name)
+                    {
+                        _data.map_style_idx = (int)i;
+                        break;
+                    }
+                }
+                snprintf(_data.map_tile_dir, sizeof(_data.map_tile_dir), "%s/%s", MAP_BASE_DIR, MAP_STYLES[_data.map_style_idx].name);
             }
 
             if (_data.selected_node_valid && _data.selected_node.info.has_position)
