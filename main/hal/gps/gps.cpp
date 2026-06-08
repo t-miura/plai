@@ -29,9 +29,16 @@ namespace HAL
           _pending_config_apply(false), _wake_time_ms(0), _sleep_on_config_applied(false), _nmea_pos(0), _data{}
     {
         memset(_nmea_buf, 0, sizeof(_nmea_buf));
+        _data_mutex = xSemaphoreCreateMutex();
     }
 
-    GPS::~GPS() { deinit(); }
+    GPS::~GPS() { 
+        deinit(); 
+        if (_data_mutex) {
+            vSemaphoreDelete(_data_mutex);
+            _data_mutex = nullptr;
+        }
+    }
 
     bool GPS::init()
     {
@@ -163,7 +170,9 @@ namespace HAL
                 _is_sleeping = true;
                 _last_sleep_cmd_ms = millis();
                 // Clear GPS data since we no longer have an active lock/feed
+                if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
                 memset((void*)&_data, 0, sizeof(GpsData));
+                if (_data_mutex) xSemaphoreGive(_data_mutex);
                 if (_sleep_callback)
                 {
                     _sleep_callback(true);
@@ -195,18 +204,25 @@ namespace HAL
     {
         // Simple copy - GpsData is small and updated atomically per-field
         GpsData copy;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
         memcpy(&copy, (const void*)&_data, sizeof(GpsData));
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
         return copy;
     }
 
     uint32_t GPS::msSinceLastFix() const
     {
-        if (_data.last_fix_ms == 0)
+        uint32_t last_fix;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        last_fix = _data.last_fix_ms;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+
+        if (last_fix == 0)
         {
             return UINT32_MAX;
         }
         uint32_t now = millis();
-        return now - _data.last_fix_ms;
+        return now - last_fix;
     }
 
     void GPS::sendCommand(const char* cmd)
@@ -353,8 +369,10 @@ namespace HAL
         }
 
         // Increment sentence counter (non-volatile, just diagnostic)
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
         uint32_t count = _data.sentence_count;
         _data.sentence_count = count + 1;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
     }
 
     bool GPS::_validate_checksum(const char* sentence, int len)
@@ -408,6 +426,11 @@ namespace HAL
         ESP_LOGD(TAG, "Parsing GGA sentence: %s", sentence);
         const char* p = sentence;
 
+        GpsData local_data;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        memcpy(&local_data, (const void*)&_data, sizeof(GpsData));
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+
         // Skip sentence ID
         p = _next_field(p); // field 0: time
         if (!p)
@@ -419,9 +442,9 @@ namespace HAL
             int h = _parse_int(p, 2);
             int m = _parse_int(p + 2, 2);
             int s = _parse_int(p + 4, 2);
-            _data.hour = (uint8_t)h;
-            _data.minute = (uint8_t)m;
-            _data.second = (uint8_t)s;
+            local_data.hour = (uint8_t)h;
+            local_data.minute = (uint8_t)m;
+            local_data.second = (uint8_t)s;
         }
 
         p = _next_field(p); // field 1: latitude
@@ -490,24 +513,28 @@ namespace HAL
         }
 
         // Update fix data
-        _data.fix_quality = static_cast<GpsFixQuality>(fix);
-        _data.has_fix = (fix > 0);
-        _data.sats_used = (uint32_t)sats;
-        _data.hdop = (uint32_t)(hdop * 100.0);
-        _data.altitude_msl = (int32_t)alt_msl;
-        _data.altitude_hae = (int32_t)(alt_msl + geoid_sep);
+        local_data.fix_quality = static_cast<GpsFixQuality>(fix);
+        local_data.has_fix = (fix > 0);
+        local_data.sats_used = (uint32_t)sats;
+        local_data.hdop = (uint32_t)(hdop * 100.0);
+        local_data.altitude_msl = (int32_t)alt_msl;
+        local_data.altitude_hae = (int32_t)(alt_msl + geoid_sep);
 
-        if (_data.has_fix && lat_str[0] && lon_str[0] && lat_str[0] != ',' && lon_str[0] != ',')
+        if (local_data.has_fix && lat_str[0] && lon_str[0] && lat_str[0] != ',' && lon_str[0] != ',')
         {
             double lat = _parse_coord(lat_str, lat_dir);
             double lon = _parse_coord(lon_str, lon_dir);
 
-            _data.latitude = lat;
-            _data.longitude = lon;
-            _data.latitude_i = (int32_t)(lat * 1e7);
-            _data.longitude_i = (int32_t)(lon * 1e7);
-            _data.last_fix_ms = millis();
+            local_data.latitude = lat;
+            local_data.longitude = lon;
+            local_data.latitude_i = (int32_t)(lat * 1e7);
+            local_data.longitude_i = (int32_t)(lon * 1e7);
+            local_data.last_fix_ms = millis();
         }
+
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        memcpy((void*)&_data, &local_data, sizeof(GpsData));
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
     }
 
     // ========== RMC: Recommended Minimum Navigation Information ==========
@@ -527,6 +554,11 @@ namespace HAL
         ESP_LOGD(TAG, "Parsing RMC sentence: %s", sentence);
         const char* p = sentence;
 
+        GpsData local_data;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        memcpy(&local_data, (const void*)&_data, sizeof(GpsData));
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+
         // Skip sentence ID
         p = _next_field(p); // field 0: time
         if (!p)
@@ -535,9 +567,9 @@ namespace HAL
         // Parse time
         if (*p && *p != ',')
         {
-            _data.hour = (uint8_t)_parse_int(p, 2);
-            _data.minute = (uint8_t)_parse_int(p + 2, 2);
-            _data.second = (uint8_t)_parse_int(p + 4, 2);
+            local_data.hour = (uint8_t)_parse_int(p, 2);
+            local_data.minute = (uint8_t)_parse_int(p + 2, 2);
+            local_data.second = (uint8_t)_parse_int(p + 4, 2);
         }
 
         p = _next_field(p); // field 1: status
@@ -588,17 +620,17 @@ namespace HAL
             return;
         if (*p && *p != ',' && strlen(p) >= 6)
         {
-            _data.day = (uint8_t)_parse_int(p, 2);
-            _data.month = (uint8_t)_parse_int(p + 2, 2);
+            local_data.day = (uint8_t)_parse_int(p, 2);
+            local_data.month = (uint8_t)_parse_int(p + 2, 2);
             int yy = _parse_int(p + 4, 2);
-            _data.year = (uint16_t)(2000 + yy);
+            local_data.year = (uint16_t)(2000 + yy);
         }
 
         // Update motion data
         // Speed: knots -> m/s (* 0.514444), store as * 100
-        _data.ground_speed = (uint32_t)(speed_knots * 0.514444 * 100.0);
+        local_data.ground_speed = (uint32_t)(speed_knots * 0.514444 * 100.0);
         // Course: degrees, store as * 1e5 (Meshtastic format)
-        _data.ground_track = (uint32_t)(course * 1e5);
+        local_data.ground_track = (uint32_t)(course * 1e5);
 
         // Update position from RMC if active
         if (active && lat_str[0] && lon_str[0] && lat_str[0] != ',' && lon_str[0] != ',')
@@ -606,39 +638,41 @@ namespace HAL
             double lat = _parse_coord(lat_str, lat_dir);
             double lon = _parse_coord(lon_str, lon_dir);
 
-            _data.latitude = lat;
-            _data.longitude = lon;
-            _data.latitude_i = (int32_t)(lat * 1e7);
-            _data.longitude_i = (int32_t)(lon * 1e7);
-            _data.has_fix = true;
-            _data.last_fix_ms = millis();
+            local_data.latitude = lat;
+            local_data.longitude = lon;
+            local_data.latitude_i = (int32_t)(lat * 1e7);
+            local_data.longitude_i = (int32_t)(lon * 1e7);
+            local_data.has_fix = true;
+            local_data.last_fix_ms = millis();
         }
         else if (!active)
         {
-            _data.has_fix = false;
+            local_data.has_fix = false;
         }
 
         // Compute Unix timestamp from date + time
-        if (_data.year >= 2020 && _data.month > 0 && _data.day > 0)
+        if (local_data.year >= 2020 && local_data.month > 0 && local_data.day > 0)
         {
             ESP_LOGD(TAG,
                      "Converting date and time to Unix timestamp: %d-%d-%d %d:%d:%d",
-                     _data.year,
-                     _data.month,
-                     _data.day,
-                     _data.hour,
-                     _data.minute,
-                     _data.second);
-            _data.time = _to_unix_time(_data.year, _data.month, _data.day, _data.hour, _data.minute, _data.second);
+                     local_data.year,
+                     local_data.month,
+                     local_data.day,
+                     local_data.hour,
+                     local_data.minute,
+                     local_data.second);
+            local_data.time = _to_unix_time(local_data.year, local_data.month, local_data.day, local_data.hour, local_data.minute, local_data.second);
         }
+
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        memcpy((void*)&_data, &local_data, sizeof(GpsData));
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
 
         // Notify subscriber with a consistent snapshot on every parsed RMC sentence
         // (even if no satellite lock, to allow RTC time bootstrap).
         if (_data_callback)
         {
-            GpsData snapshot;
-            memcpy(&snapshot, (const void*)&_data, sizeof(GpsData));
-            _data_callback(snapshot);
+            _data_callback(local_data);
         }
     }
 

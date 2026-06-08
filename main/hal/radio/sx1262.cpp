@@ -429,7 +429,7 @@ namespace HAL
 
     void SX1262::setCS(bool active) { gpio_set_level((gpio_num_t)_pins.cs, active ? 0 : 1); }
 
-    bool SX1262::spiTransfer(const uint8_t* tx, uint8_t* rx, size_t len)
+    bool SX1262::spiTransferLocked(const uint8_t* tx, uint8_t* rx, size_t len)
     {
         if (!_spi_handle || len == 0)
         {
@@ -442,17 +442,10 @@ namespace HAL
         trans.tx_buffer = tx;
         trans.rx_buffer = rx;
 
-        if (xSemaphoreTake(_spi_mutex, pdMS_TO_TICKS(5000)) != pdTRUE)
-        {
-            ESP_LOGE(TAG, "Failed to take SPI mutex");
-            return false;
-        }
-
         esp_err_t ret = spi_device_acquire_bus(_spi_handle, portMAX_DELAY);
         if (ret != ESP_OK)
         {
             ESP_LOGE(TAG, "Failed to acquire SPI bus: %s", esp_err_to_name(ret));
-            xSemaphoreGive(_spi_mutex);
             return false;
         }
 
@@ -467,137 +460,162 @@ namespace HAL
 
         setCS(false);
         spi_device_release_bus(_spi_handle);
-        xSemaphoreGive(_spi_mutex);
         return ret == ESP_OK;
+    }
+
+    bool SX1262::spiTransfer(const uint8_t* tx, uint8_t* rx, size_t len)
+    {
+        if (xSemaphoreTake(_spi_mutex, pdMS_TO_TICKS(5000)) != pdTRUE)
+        {
+            ESP_LOGE(TAG, "Failed to take SPI mutex");
+            return false;
+        }
+
+        bool ret = spiTransferLocked(tx, rx, len);
+        
+        xSemaphoreGive(_spi_mutex);
+        return ret;
     }
 
     void SX1262::writeCommand(uint8_t cmd, const uint8_t* data, size_t len)
     {
-        uint8_t tx[256];
-        uint8_t rx[256];
+        if (len > 255) return;
+        if (xSemaphoreTake(_spi_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return;
 
-        tx[0] = cmd;
+        _spi_tx_buf[0] = cmd;
         if (data && len > 0)
         {
-            memcpy(&tx[1], data, len);
+            memcpy(&_spi_tx_buf[1], data, len);
         }
 
-        if (!spiTransfer(tx, rx, 1 + len))
+        if (!spiTransferLocked(_spi_tx_buf, _spi_rx_buf, 1 + len))
         {
             ESP_LOGE(TAG, "writeCommand failed: cmd=0x%02X", cmd);
         }
+        xSemaphoreGive(_spi_mutex);
     }
 
     void SX1262::readCommand(uint8_t cmd, uint8_t* data, size_t len)
     {
-        uint8_t tx[256] = {0};
-        uint8_t rx[256] = {0};
+        if (len > 255) {
+            if (data) memset(data, 0, len);
+            return;
+        }
+        if (xSemaphoreTake(_spi_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return;
 
-        tx[0] = cmd;
-        tx[1] = 0; // NOP for status
+        _spi_tx_buf[0] = cmd;
+        _spi_tx_buf[1] = 0; // NOP for status
+        memset(&_spi_tx_buf[2], 0, len);
 
-        if (!spiTransfer(tx, rx, 2 + len))
+        if (!spiTransferLocked(_spi_tx_buf, _spi_rx_buf, 2 + len))
         {
             ESP_LOGE(TAG, "readCommand failed: cmd=0x%02X", cmd);
             if (data && len > 0)
             {
                 memset(data, 0, len); // Zero out data on error
             }
-            return;
         }
-
-        if (data && len > 0)
+        else if (data && len > 0)
         {
-            memcpy(data, &rx[2], len);
+            memcpy(data, &_spi_rx_buf[2], len);
         }
+        xSemaphoreGive(_spi_mutex);
     }
 
     void SX1262::writeRegister(uint16_t addr, const uint8_t* data, size_t len)
     {
-        uint8_t tx[256];
-        uint8_t rx[256];
+        if (len > 255) return;
+        if (xSemaphoreTake(_spi_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return;
 
-        tx[0] = SX1262_CMD_WRITE_REGISTER;
-        tx[1] = (addr >> 8) & 0xFF;
-        tx[2] = addr & 0xFF;
+        _spi_tx_buf[0] = SX1262_CMD_WRITE_REGISTER;
+        _spi_tx_buf[1] = (addr >> 8) & 0xFF;
+        _spi_tx_buf[2] = addr & 0xFF;
         if (data && len > 0)
         {
-            memcpy(&tx[3], data, len);
+            memcpy(&_spi_tx_buf[3], data, len);
         }
 
-        if (!spiTransfer(tx, rx, 3 + len))
+        if (!spiTransferLocked(_spi_tx_buf, _spi_rx_buf, 3 + len))
         {
             ESP_LOGE(TAG, "writeRegister failed: addr=0x%04X", addr);
         }
+        xSemaphoreGive(_spi_mutex);
     }
 
     void SX1262::readRegister(uint16_t addr, uint8_t* data, size_t len)
     {
-        uint8_t tx[256] = {0};
-        uint8_t rx[256] = {0};
+        if (len > 255) {
+            if (data) memset(data, 0, len);
+            return;
+        }
+        if (xSemaphoreTake(_spi_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return;
 
-        tx[0] = SX1262_CMD_READ_REGISTER;
-        tx[1] = (addr >> 8) & 0xFF;
-        tx[2] = addr & 0xFF;
-        tx[3] = 0; // NOP
+        _spi_tx_buf[0] = SX1262_CMD_READ_REGISTER;
+        _spi_tx_buf[1] = (addr >> 8) & 0xFF;
+        _spi_tx_buf[2] = addr & 0xFF;
+        _spi_tx_buf[3] = 0; // NOP
+        memset(&_spi_tx_buf[4], 0, len);
 
-        if (!spiTransfer(tx, rx, 4 + len))
+        if (!spiTransferLocked(_spi_tx_buf, _spi_rx_buf, 4 + len))
         {
             ESP_LOGE(TAG, "readRegister failed: addr=0x%04X", addr);
             if (data && len > 0)
             {
                 memset(data, 0, len); // Zero out data on error
             }
-            return;
         }
-
-        if (data && len > 0)
+        else if (data && len > 0)
         {
-            memcpy(data, &rx[4], len);
+            memcpy(data, &_spi_rx_buf[4], len);
         }
+        xSemaphoreGive(_spi_mutex);
     }
 
     void SX1262::writeBuffer(uint8_t offset, const uint8_t* data, size_t len)
     {
-        uint8_t tx[256];
-        uint8_t rx[256];
+        if (len > 255) return;
+        if (xSemaphoreTake(_spi_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return;
 
-        tx[0] = SX1262_CMD_WRITE_BUFFER;
-        tx[1] = offset;
+        _spi_tx_buf[0] = SX1262_CMD_WRITE_BUFFER;
+        _spi_tx_buf[1] = offset;
         if (data && len > 0)
         {
-            memcpy(&tx[2], data, len);
+            memcpy(&_spi_tx_buf[2], data, len);
         }
 
-        if (!spiTransfer(tx, rx, 2 + len))
+        if (!spiTransferLocked(_spi_tx_buf, _spi_rx_buf, 2 + len))
         {
             ESP_LOGE(TAG, "writeBuffer failed: offset=0x%02X, len=%lu", offset, len);
         }
+        xSemaphoreGive(_spi_mutex);
     }
 
     void SX1262::readBuffer(uint8_t offset, uint8_t* data, size_t len)
     {
-        uint8_t tx[256] = {0};
-        uint8_t rx[256] = {0};
+        if (len > 255) {
+            if (data) memset(data, 0, len);
+            return;
+        }
+        if (xSemaphoreTake(_spi_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return;
 
-        tx[0] = SX1262_CMD_READ_BUFFER;
-        tx[1] = offset;
-        tx[2] = 0; // NOP
+        _spi_tx_buf[0] = SX1262_CMD_READ_BUFFER;
+        _spi_tx_buf[1] = offset;
+        _spi_tx_buf[2] = 0; // NOP
+        memset(&_spi_tx_buf[3], 0, len);
 
-        if (!spiTransfer(tx, rx, 3 + len))
+        if (!spiTransferLocked(_spi_tx_buf, _spi_rx_buf, 3 + len))
         {
             ESP_LOGE(TAG, "readBuffer failed: offset=0x%02X, len=%lu", offset, len);
             if (data && len > 0)
             {
                 memset(data, 0, len); // Zero out data on error
             }
-            return;
         }
-
-        if (data && len > 0)
+        else if (data && len > 0)
         {
-            memcpy(data, &rx[3], len);
+            memcpy(data, &_spi_rx_buf[3], len);
         }
+        xSemaphoreGive(_spi_mutex);
     }
 
     void SX1262::reset()
