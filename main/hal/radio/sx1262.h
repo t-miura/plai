@@ -114,6 +114,7 @@ namespace HAL
         // SPI communication
         bool spiInit();
         void spiDeinit();
+        bool spiTransferLocked(const uint8_t* tx, uint8_t* rx, size_t len);
         bool spiTransfer(const uint8_t* tx, uint8_t* rx, size_t len);
         void writeCommand(uint8_t cmd, const uint8_t* data = nullptr, size_t len = 0);
         void readCommand(uint8_t cmd, uint8_t* data, size_t len);
@@ -175,6 +176,8 @@ namespace HAL
         uint8_t _last_rx_len;
         uint8_t _rx_buffer_ptr;
         bool _initialized;
+        uint8_t _spi_tx_buf[260];
+        uint8_t _spi_rx_buf[260];
     };
 
 } // namespace HAL

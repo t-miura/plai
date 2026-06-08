@@ -9,6 +9,8 @@
 #include <functional>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/semphr.h>
+
 #include "../board.h"
 
 namespace HAL
@@ -239,6 +241,7 @@ namespace HAL
 
         // GPS data (updated by background task)
         volatile GpsData _data;
+        SemaphoreHandle_t _data_mutex;
 
         // Optional callback fired after each valid RMC fix update
         DataCallback _data_callback;
