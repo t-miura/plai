@@ -165,7 +165,126 @@ namespace Mesh
         return std::format("{}/{:08x}.pb", NODES_DIR, node_id);
     }
 
+    bool NodeDB::isCacheDirty() const
+    {
+        for (const auto& entry : _node_cache)
+        {
+            if (entry.dirty) return true;
+        }
+        return false;
+    }
+
+    void NodeDB::flushCache()
+    {
+        for (auto& entry : _node_cache)
+        {
+            if (entry.dirty)
+            {
+                if (saveNodeToDisk(entry.node))
+                {
+                    entry.dirty = false;
+                }
+            }
+        }
+    }
+
     bool NodeDB::loadNodeFromFile(uint32_t node_id, NodeInfo& out) const
+    {
+        // 1. Check cache first
+        for (auto& entry : _node_cache)
+        {
+            if (entry.node.info.num == node_id)
+            {
+                entry.last_access_ms = millis();
+                out = entry.node;
+                return true;
+            }
+        }
+
+        // 2. Load from disk
+        NodeInfo loaded = {};
+        if (loadNodeFromDisk(node_id, loaded))
+        {
+            // 3. Put into cache
+            CachedNode new_entry = {loaded, false, static_cast<uint32_t>(millis())};
+            if (_node_cache.size() >= MAX_CACHE_SIZE)
+            {
+                // Evict LRU entry
+                size_t lru_idx = 0;
+                uint32_t min_ms = UINT32_MAX;
+                for (size_t i = 0; i < _node_cache.size(); i++)
+                {
+                    if (_node_cache[i].last_access_ms < min_ms)
+                    {
+                        min_ms = _node_cache[i].last_access_ms;
+                        lru_idx = i;
+                    }
+                }
+                // Write evicted entry to disk if dirty
+                if (_node_cache[lru_idx].dirty)
+                {
+                    saveNodeToDisk(_node_cache[lru_idx].node);
+                }
+                _node_cache[lru_idx] = new_entry;
+            }
+            else
+            {
+                _node_cache.push_back(new_entry);
+            }
+            out = loaded;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool NodeDB::saveNodeToFile(const NodeInfo& node)
+    {
+        // 1. Check cache
+        for (auto& entry : _node_cache)
+        {
+            if (entry.node.info.num == node.info.num)
+            {
+                entry.node = node;
+                entry.dirty = true;
+                entry.last_access_ms = millis();
+                markDirty();
+                return true;
+            }
+        }
+
+        // 2. Put into cache
+        CachedNode new_entry = {node, true, static_cast<uint32_t>(millis())};
+        if (_node_cache.size() >= MAX_CACHE_SIZE)
+        {
+            // Evict LRU entry
+            size_t lru_idx = 0;
+            uint32_t min_ms = UINT32_MAX;
+            for (size_t i = 0; i < _node_cache.size(); i++)
+            {
+                if (_node_cache[i].last_access_ms < min_ms)
+                {
+                    min_ms = _node_cache[i].last_access_ms;
+                    lru_idx = i;
+                }
+            }
+            // Write evicted entry to disk if dirty
+            if (_node_cache[lru_idx].dirty)
+            {
+                saveNodeToDisk(_node_cache[lru_idx].node);
+            }
+            _node_cache[lru_idx] = new_entry;
+        }
+        else
+        {
+            _node_cache.push_back(new_entry);
+        }
+
+        markDirty();
+        return true;
+    }
+
+    bool NodeDB::loadNodeFromDisk(uint32_t node_id, NodeInfo& out) const
     {
         std::string path = getNodeFilePath(node_id);
         FILE* file = fopen(path.c_str(), "rb");
@@ -204,7 +323,7 @@ namespace Mesh
         return success;
     }
 
-    bool NodeDB::saveNodeToFile(const NodeInfo& node)
+    bool NodeDB::saveNodeToDisk(const NodeInfo& node) const
     {
         std::string path = getNodeFilePath(node.info.num);
         FILE* file = fopen(path.c_str(), "wb");
@@ -243,6 +362,14 @@ namespace Mesh
 
     bool NodeDB::deleteNodeFile(uint32_t node_id)
     {
+        for (auto it = _node_cache.begin(); it != _node_cache.end(); ++it)
+        {
+            if (it->node.info.num == node_id)
+            {
+                _node_cache.erase(it);
+                break;
+            }
+        }
         std::string path = getNodeFilePath(node_id);
         if (remove(path.c_str()) == 0)
         {
@@ -896,6 +1023,8 @@ namespace Mesh
     {
         ESP_LOGD(TAG, "Saving node database to storage");
 
+        flushCache();
+
         bool success = saveIndex();
         // success &= savePrefs();
         success &= saveChannels();
@@ -1411,6 +1540,23 @@ namespace Mesh
 
     void NodeDB::checkSave()
     {
+        // 1. Process deferred cache writes (write one dirty node per call to spread load)
+        if (_dirty)
+        {
+            for (auto& entry : _node_cache)
+            {
+                if (entry.dirty)
+                {
+                    if (saveNodeToDisk(entry.node))
+                    {
+                        entry.dirty = false;
+                    }
+                    break; // Only save one node per checkSave call to keep SPI bus load low
+                }
+            }
+        }
+
+        // 2. Periodic database index / settings save
         if (!_dirty)
         {
             return;

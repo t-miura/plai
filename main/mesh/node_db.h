@@ -392,9 +392,14 @@ namespace Mesh
         // Directory management
         bool createDirectories();
 
-        // Individual node file operations
+        // Individual node file operations (cached wrappers)
         bool loadNodeFromFile(uint32_t node_id, NodeInfo& out) const;
         bool saveNodeToFile(const NodeInfo& node);
+
+        // Low-level disk operations
+        bool loadNodeFromDisk(uint32_t node_id, NodeInfo& out) const;
+        bool saveNodeToDisk(const NodeInfo& node) const;
+
         bool deleteNodeFile(uint32_t node_id);
         std::string getNodeFilePath(uint32_t node_id) const;
 
@@ -431,6 +436,19 @@ namespace Mesh
         meshtastic_LocalModuleConfig _local_module_config;
         meshtastic_Channel _channels[8];
         ChannelGreeting _greetings[8] = {};
+
+        // Write-back cache for NodeInfo
+        struct CachedNode
+        {
+            NodeInfo node;
+            bool dirty;
+            uint32_t last_access_ms;
+        };
+        mutable std::vector<CachedNode> _node_cache;
+        static constexpr size_t MAX_CACHE_SIZE = 8;
+
+        bool isCacheDirty() const;
+        void flushCache();
 
         uint32_t _our_node_id;
         int32_t _our_lat_i;
