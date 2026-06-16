@@ -704,10 +704,14 @@ bool AppNodes::_render_node_list()
         else if (cfg.position == Mesh::MeshConfig::POSITION_GPS)
         {
             auto* gps = _data.hal->gps();
-            if (gps && gps->hasFix())
+            if (gps)
             {
-                our_lat = gps->getLatitudeI();
-                our_lon = gps->getLongitudeI();
+                auto gps_data = gps->getData();
+                if (gps_data.has_fix)
+                {
+                    our_lat = gps_data.latitude_i;
+                    our_lon = gps_data.longitude_i;
+                }
             }
         }
 #endif
@@ -1853,12 +1857,18 @@ void AppNodes::_apply_sort_order(Mesh::SortOrder new_order)
         else if (cfg.position == Mesh::MeshConfig::POSITION_GPS)
         {
             auto* gps = _data.hal->gps();
-            if (gps && gps->hasFix())
+            bool has_fix = false;
+            if (gps)
             {
-                lat_i = gps->getLatitudeI();
-                lon_i = gps->getLongitudeI();
+                auto gps_data = gps->getData();
+                if (gps_data.has_fix)
+                {
+                    lat_i = gps_data.latitude_i;
+                    lon_i = gps_data.longitude_i;
+                    has_fix = true;
+                }
             }
-            else
+            if (!has_fix)
             {
                 UTILS::UI::show_error_dialog(_data.hal, "Sort by distance", "No GPS fix available");
                 _data.update_list = true;

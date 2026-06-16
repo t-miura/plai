@@ -120,7 +120,7 @@ namespace HAL
         /**
          * @brief Check if GPS has a valid fix
          */
-        bool hasFix() const { return _data.has_fix; }
+        bool hasFix() const;
 
         /**
          * @brief Get current GPS data (thread-safe copy)
@@ -130,62 +130,62 @@ namespace HAL
         /**
          * @brief Get latitude in degrees
          */
-        double getLatitude() const { return _data.latitude; }
+        double getLatitude() const;
 
         /**
          * @brief Get longitude in degrees
          */
-        double getLongitude() const { return _data.longitude; }
+        double getLongitude() const;
 
         /**
          * @brief Get latitude in Meshtastic integer format (degrees * 1e7)
          */
-        int32_t getLatitudeI() const { return _data.latitude_i; }
+        int32_t getLatitudeI() const;
 
         /**
          * @brief Get longitude in Meshtastic integer format (degrees * 1e7)
          */
-        int32_t getLongitudeI() const { return _data.longitude_i; }
+        int32_t getLongitudeI() const;
 
         /**
          * @brief Get altitude above MSL in meters
          */
-        int32_t getAltitude() const { return _data.altitude_msl; }
+        int32_t getAltitude() const;
 
         /**
          * @brief Get number of satellites used
          */
-        uint32_t getSatellites() const { return _data.sats_used; }
+        uint32_t getSatellites() const;
 
         /**
          * @brief Get HDOP * 100
          */
-        uint32_t getHDOP() const { return _data.hdop; }
+        uint32_t getHDOP() const;
 
         /**
          * @brief Get ground speed in m/s * 100
          */
-        uint32_t getGroundSpeed() const { return _data.ground_speed; }
+        uint32_t getGroundSpeed() const;
 
         /**
          * @brief Get course over ground in degrees * 1e5
          */
-        uint32_t getGroundTrack() const { return _data.ground_track; }
+        uint32_t getGroundTrack() const;
 
         /**
          * @brief Get fix quality
          */
-        GpsFixQuality getFixQuality() const { return _data.fix_quality; }
+        GpsFixQuality getFixQuality() const;
 
         /**
          * @brief Get Unix timestamp from GPS
          */
-        uint32_t getTime() const { return _data.time; }
+        uint32_t getTime() const;
 
         /**
          * @brief Get total parsed sentence count (for diagnostics)
          */
-        uint32_t getSentenceCount() const { return _data.sentence_count; }
+        uint32_t getSentenceCount() const;
 
         /**
          * @brief Get milliseconds since last valid fix

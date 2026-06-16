@@ -210,6 +210,123 @@ namespace HAL
         return copy;
     }
 
+    bool GPS::hasFix() const
+    {
+        bool fix;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        fix = _data.has_fix;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return fix;
+    }
+
+    double GPS::getLatitude() const
+    {
+        double val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.latitude;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    double GPS::getLongitude() const
+    {
+        double val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.longitude;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    int32_t GPS::getLatitudeI() const
+    {
+        int32_t val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.latitude_i;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    int32_t GPS::getLongitudeI() const
+    {
+        int32_t val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.longitude_i;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    int32_t GPS::getAltitude() const
+    {
+        int32_t val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.altitude_msl;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    uint32_t GPS::getSatellites() const
+    {
+        uint32_t val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.sats_used;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    uint32_t GPS::getHDOP() const
+    {
+        uint32_t val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.hdop;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    uint32_t GPS::getGroundSpeed() const
+    {
+        uint32_t val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.ground_speed;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    uint32_t GPS::getGroundTrack() const
+    {
+        uint32_t val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.ground_track;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    GpsFixQuality GPS::getFixQuality() const
+    {
+        GpsFixQuality val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.fix_quality;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    uint32_t GPS::getTime() const
+    {
+        uint32_t val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.time;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
+    uint32_t GPS::getSentenceCount() const
+    {
+        uint32_t val;
+        if (_data_mutex) xSemaphoreTake(_data_mutex, portMAX_DELAY);
+        val = _data.sentence_count;
+        if (_data_mutex) xSemaphoreGive(_data_mutex);
+        return val;
+    }
+
     uint32_t GPS::msSinceLastFix() const
     {
         uint32_t last_fix;

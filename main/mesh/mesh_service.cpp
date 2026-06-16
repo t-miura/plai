@@ -540,6 +540,12 @@ namespace Mesh
     {
         ESP_LOGD(TAG, "Stopping mesh service");
 
+        if (_gps)
+        {
+            _gps->setDataCallback(nullptr);
+            _gps->setSleepCallback(nullptr);
+        }
+
         // Put radio to sleep
         if (_radio)
         {
@@ -4002,54 +4008,58 @@ namespace Mesh
                      (unsigned long)pf);
         }
         // Otherwise use live GPS if available (POSITION_GPS mode)
-        else if (_config.position == MeshConfig::POSITION_GPS && _gps && _gps->hasFix())
+        else if (_config.position == MeshConfig::POSITION_GPS && _gps)
         {
-            position.has_latitude_i = true;
-            position.latitude_i = _gps->getLatitudeI();
-            position.has_longitude_i = true;
-            position.longitude_i = _gps->getLongitudeI();
-            if (pf & meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE)
+            HAL::GpsData gps_data = _gps->getData();
+            if (gps_data.has_fix)
             {
-                position.has_altitude = true;
-                position.altitude = _gps->getAltitude();
-            }
-            if (pf & meshtastic_Config_PositionConfig_PositionFlags_SATINVIEW)
-            {
-                position.sats_in_view = _gps->getSatellites();
-            }
-            if (pf & meshtastic_Config_PositionConfig_PositionFlags_SEQ_NO)
-            {
-                position.seq_number = seq_number++;
-            }
-            if (pf & meshtastic_Config_PositionConfig_PositionFlags_DOP)
-            {
-                position.HDOP = _gps->getHDOP();
-            }
-            if (pf & meshtastic_Config_PositionConfig_PositionFlags_TIMESTAMP)
-            {
-                position.time = _gps->getTime();
-            }
-            position.location_source = meshtastic_Position_LocSource_LOC_INTERNAL;
+                position.has_latitude_i = true;
+                position.latitude_i = gps_data.latitude_i;
+                position.has_longitude_i = true;
+                position.longitude_i = gps_data.longitude_i;
+                if (pf & meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE)
+                {
+                    position.has_altitude = true;
+                    position.altitude = gps_data.altitude_msl;
+                }
+                if (pf & meshtastic_Config_PositionConfig_PositionFlags_SATINVIEW)
+                {
+                    position.sats_in_view = gps_data.sats_used;
+                }
+                if (pf & meshtastic_Config_PositionConfig_PositionFlags_SEQ_NO)
+                {
+                    position.seq_number = seq_number++;
+                }
+                if (pf & meshtastic_Config_PositionConfig_PositionFlags_DOP)
+                {
+                    position.HDOP = gps_data.hdop;
+                }
+                if (pf & meshtastic_Config_PositionConfig_PositionFlags_TIMESTAMP)
+                {
+                    position.time = gps_data.time;
+                }
+                position.location_source = meshtastic_Position_LocSource_LOC_INTERNAL;
 
-            if ((pf & meshtastic_Config_PositionConfig_PositionFlags_SPEED) && _gps->getGroundSpeed() > 0)
-            {
-                position.has_ground_speed = true;
-                position.ground_speed = _gps->getGroundSpeed();
-            }
-            if ((pf & meshtastic_Config_PositionConfig_PositionFlags_HEADING) && _gps->getGroundTrack() > 0)
-            {
-                position.has_ground_track = true;
-                position.ground_track = _gps->getGroundTrack();
-            }
+                if ((pf & meshtastic_Config_PositionConfig_PositionFlags_SPEED) && gps_data.ground_speed > 0)
+                {
+                    position.has_ground_speed = true;
+                    position.ground_speed = gps_data.ground_speed;
+                }
+                if ((pf & meshtastic_Config_PositionConfig_PositionFlags_HEADING) && gps_data.ground_track > 0)
+                {
+                    position.has_ground_track = true;
+                    position.ground_track = gps_data.ground_track;
+                }
 
-            has_position = true;
-            ESP_LOGI(TAG,
-                     "Sending GPS position: lat=%ld lon=%ld alt=%ld sats=%lu flags=0x%08lx",
-                     (long)position.latitude_i,
-                     (long)position.longitude_i,
-                     (long)position.altitude,
-                     (unsigned long)position.sats_in_view,
-                     (unsigned long)pf);
+                has_position = true;
+                ESP_LOGI(TAG,
+                         "Sending GPS position: lat=%ld lon=%ld alt=%ld sats=%lu flags=0x%08lx",
+                         (long)position.latitude_i,
+                         (long)position.longitude_i,
+                         (long)position.altitude,
+                         (unsigned long)position.sats_in_view,
+                         (unsigned long)pf);
+            }
         }
 
         if (!has_position)
