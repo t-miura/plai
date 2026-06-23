@@ -720,8 +720,10 @@ namespace SETTINGS
                          _hal->display()->fillScreen(TFT_BLACK);
                          _hal->display()->setTextColor(TFT_ORANGE, TFT_BLACK);
                          _hal->display()->setTextDatum(middle_center);
-                         _hal->display()->drawString("It's now safe to turn off", _hal->display()->width() / 2, _hal->display()->height() / 2 - 10);
-                         _hal->display()->drawString("your node.", _hal->display()->width() / 2, _hal->display()->height() / 2 + 10);
+                         _hal->display()->drawString("It's now safe to turn off", _hal->display()->width() / 2, _hal->display()->height() / 2 - 30);
+                         _hal->display()->drawString("your node.", _hal->display()->width() / 2, _hal->display()->height() / 2 - 10);
+                         _hal->display()->drawString("Тепер вузол", _hal->display()->width() / 2, _hal->display()->height() / 2 + 15);
+                         _hal->display()->drawString("можна безпечно вимкнути.", _hal->display()->width() / 2, _hal->display()->height() / 2 + 35);
                      }
 #endif
                      while(true) { delay(1000); }
