@@ -663,6 +663,74 @@ namespace SETTINGS
             }
         };
 
+        // Power settings
+        SettingGroup_t power_group;
+        power_group.name = "Power";
+        power_group.nvs_namespace = "power";
+        power_group.items = {
+            back_item,
+            {"reboot",
+             "Reboot",
+             TYPE_CALLBACK,
+             "",
+             "",
+             "",
+             "",
+             "Safely reboot the node",
+             [this](SettingItem_t& item)
+             {
+                 if (_hal)
+                 {
+                     bool confirm = UTILS::UI::show_confirmation_dialog(_hal, "Confirm", "Reboot the node?", "Yes", "No");
+                     if (!confirm)
+                         return;
+
+                     if (_hal->mesh()) _hal->mesh()->stop();
+                     _hal->settings()->saveAll();
+                     if (_hal->nodedb()) _hal->nodedb()->save();
+                     if (_hal->sdcard()) _hal->sdcard()->eject();
+
+                     _hal->reboot();
+                 }
+             }},
+            {"shutdown",
+             "Shutdown",
+             TYPE_CALLBACK,
+             "",
+             "",
+             "",
+             "",
+             "Safely shutdown the node",
+             [this](SettingItem_t& item)
+             {
+                 if (_hal)
+                 {
+                     bool confirm = UTILS::UI::show_confirmation_dialog(_hal, "Confirm", "Shutdown the node?", "Yes", "No");
+                     if (!confirm)
+                         return;
+
+                     if (_hal->mesh()) _hal->mesh()->stop();
+                     _hal->settings()->saveAll();
+                     if (_hal->nodedb()) _hal->nodedb()->save();
+                     if (_hal->sdcard()) _hal->sdcard()->eject();
+
+#if HAL_USE_DISPLAY
+                     if (_hal->display())
+                     {
+                         _hal->display()->fillScreen(TFT_BLACK);
+                         _hal->display()->setTextColor(TFT_ORANGE, TFT_BLACK);
+                         _hal->display()->setTextDatum(middle_center);
+                         _hal->display()->drawString("It's now safe to turn off", _hal->display()->width() / 2, _hal->display()->height() / 2 - 30);
+                         _hal->display()->drawString("your node.", _hal->display()->width() / 2, _hal->display()->height() / 2 - 10);
+                         _hal->display()->drawString("Тепер вузол", _hal->display()->width() / 2, _hal->display()->height() / 2 + 15);
+                         _hal->display()->drawString("можна безпечно вимкнути.", _hal->display()->width() / 2, _hal->display()->height() / 2 + 35);
+                     }
+#endif
+                     while(true) { delay(1000); }
+                 }
+             }},
+        };
+
         _metadata = {sys_group,
                      lora_group,
                      security_group,
@@ -671,7 +739,8 @@ namespace SETTINGS
                      position_group,
                      devmetrics_group,
                      export_group,
-                     import_group};
+                     import_group,
+                     power_group};
     }
 
     void Settings::applyTimezone(const std::string& tz)

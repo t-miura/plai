@@ -25,6 +25,8 @@
 #include <cstring>
 #include <stdio.h>
 #include <time.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "apps/utils/text/text_utils.h"
 #include "apps/utils/ui/draw_helper.h"
@@ -4377,7 +4379,44 @@ bool AppNodes::_map_draw_tile(int tx, int ty, int zoom, int screen_x, int screen
     if (draw_w <= 0 || draw_h <= 0)
         return false;
 
-    return canvas->drawJpgFile(path, dst_x, dst_y, draw_w, draw_h, src_x, src_y);
+    class PosixFileDataWrapper : public lgfx::DataWrapper {
+    public:
+        PosixFileDataWrapper() : lgfx::DataWrapper(), fd(-1) {}
+        ~PosixFileDataWrapper() { close(); }
+        
+        bool open(const char* p) override {
+            fd = ::open(p, O_RDONLY);
+            return fd >= 0;
+        }
+        int read(uint8_t *buf, uint32_t len) override {
+            if (fd < 0) return 0;
+            int res = ::read(fd, buf, len);
+            return res < 0 ? 0 : res;
+        }
+        void skip(int32_t offset) override {
+            if (fd >= 0) ::lseek(fd, offset, SEEK_CUR);
+        }
+        bool seek(uint32_t offset) override {
+            if (fd < 0) return false;
+            off_t res = ::lseek(fd, offset, SEEK_SET);
+            return res == (off_t)offset;
+        }
+        void close(void) override {
+            if (fd >= 0) {
+                ::close(fd);
+                fd = -1;
+            }
+        }
+        int32_t tell(void) override {
+            if (fd < 0) return 0;
+            return (int32_t)::lseek(fd, 0, SEEK_CUR);
+        }
+    private:
+        int fd;
+    };
+
+    PosixFileDataWrapper file_wrapper;
+    return canvas->drawJpgFile(&file_wrapper, path, dst_x, dst_y, draw_w, draw_h, src_x, src_y);
 }
 
 bool AppNodes::_render_node_map()

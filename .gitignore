@@ -14,3 +14,4 @@ protobufs
 eim_config.toml
 GEMINI.md
 .agents
+emoji/*.ttf

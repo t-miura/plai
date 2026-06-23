@@ -13,6 +13,7 @@
 #include "common_define.h"
 #if HAL_USE_DISPLAY
 #include "display/display.hpp"
+#include "builtin_emojis.h"
 #endif
 #if HAL_USE_IOEX
 #include "ioex/ioex.h"
@@ -214,6 +215,56 @@ static const EmojiCacheEntry* emoji_cache_lookup(uint32_t code)
 
 static int32_t emoji_draw_callback(lgfx::LGFXBase* gfx, int32_t x, int32_t y, uint32_t code, int32_t font_height)
 {
+    // Try to find the emoji in our built-in monochrome database first
+    const uint8_t* bmp = builtin_emoji_lookup(code);
+    if (bmp)
+    {
+        constexpr int32_t w = 12;
+        constexpr int32_t h = 12;
+        int32_t target_h = font_height;
+        int32_t target_w = font_height; // Square emojis
+        
+        int32_t draw_y = y - (int32_t)((font_height * 90.0f) / 100.0f);
+        
+        uint32_t fg = gfx->getTextStyle().fore_rgb888;
+        uint32_t bg = gfx->getTextStyle().back_rgb888;
+        bool has_bg = (fg != bg);
+        
+        if (target_h == h)
+        {
+            if (has_bg) {
+                gfx->drawXBitmap(x, draw_y, bmp, w, h, fg, bg);
+            } else {
+                gfx->drawXBitmap(x, draw_y, bmp, w, h, fg);
+            }
+        }
+        else
+        {
+            gfx->startWrite();
+            constexpr int32_t byteWidth = (w + 7) >> 3;
+            for (int32_t dy = 0; dy < target_h; dy++)
+            {
+                int32_t sy = dy * h / target_h;
+                if (sy >= h) sy = h - 1;
+                for (int32_t dx = 0; dx < target_w; dx++)
+                {
+                    int32_t sx = dx * w / target_w;
+                    if (sx >= w) sx = w - 1;
+                    uint8_t byte = bmp[sy * byteWidth + (sx >> 3)];
+                    bool is_fg = (byte & (1 << (sx & 7)));
+                    if (is_fg) {
+                        gfx->writePixel(x + dx, draw_y + dy, fg);
+                    } else if (has_bg) {
+                        gfx->writePixel(x + dx, draw_y + dy, bg);
+                    }
+                }
+            }
+            gfx->endWrite();
+        }
+        return target_w;
+    }
+
+    // Fall back to SD card PNG
     auto* e = emoji_cache_lookup(code);
     if (!e->data || e->png_h <= 0)
         return 0;

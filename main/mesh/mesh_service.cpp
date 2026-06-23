@@ -2397,7 +2397,9 @@ namespace Mesh
                     // format last heard to date time string
                     time_t last_heard_time = (time_t)node_info.info.last_heard;
                     char last_heard_str[20];
-                    strftime(last_heard_str, sizeof(last_heard_str), "%Y-%m-%d %H:%M:%S", localtime(&last_heard_time));
+                    struct tm tm_info;
+                    localtime_r(&last_heard_time, &tm_info);
+                    strftime(last_heard_str, sizeof(last_heard_str), "%Y-%m-%d %H:%M:%S", &tm_info);
                     ESP_LOGW(TAG,
                              "Updated node 0x%08lX: RSSI=%d, SNR=%.1f, hops=%d (start=%d, limit=%d), last_heard(%lu)=%s, "
                              "relay=0x%02X",
