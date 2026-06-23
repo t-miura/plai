@@ -1257,16 +1257,19 @@ namespace Mesh
         if (drift < 0)
             drift = -drift;
 
+        // For periodic sync, wait to discard the stale UART buffer
+        bool periodic_sync_ready = _gps_periodic_sync_active && (millis() - _gps_periodic_sync_start_ms > GPS_WAKEUP_STALE_DELAY_MS);
+
         // We sync if:
         // 1. System clock is currently invalid/unset (RTC bootstrap) AND gps_rtc_sync is enabled
         // 2. We have a live GPS fix and the drift is significant
-        // 3. We are running a periodic RTC sync from the GPS's crystal RTC and drift is significant AND gps_rtc_sync is enabled
+        // 3. We are running a periodic RTC sync, stale buffer is flushed, drift is significant AND gps_rtc_sync is enabled
         bool gps_rtc_sync_enabled = _hal->settings()->getBool("system", "gps_rtc_sync");
         bool gps_sleep_allowed = _hal->settings()->getBool("system", "gps_sleep");
         bool should_sync = gps_rtc_sync_enabled && (
                            !is_sys_time_valid || 
                            (data.has_fix && (drift > GPS_SIGNIFICANT_DRIFT_S)) ||
-                           (_gps_periodic_sync_active && (drift > GPS_SIGNIFICANT_DRIFT_S)) ||
+                           (periodic_sync_ready && (drift > GPS_SIGNIFICANT_DRIFT_S)) ||
                            (!gps_sleep_allowed && (drift > GPS_SIGNIFICANT_DRIFT_S)));
 
         ESP_LOGD("GPS_SYNC", "is_sys_time_valid=%d, drift=%ld, should_sync=%d",
@@ -1324,18 +1327,20 @@ namespace Mesh
             }
         }
 
-        // If we were performing a periodic RTC sync, and we received a valid time,
-        // put the GPS back to sleep and update the sync state.
+        // If we were performing a periodic RTC sync, wait for a fresh sentence before sleeping again
         if (_gps_periodic_sync_active && _gps)
         {
-            ESP_LOGI(TAG, "Periodic RTC sync complete, putting GPS back to sleep");
-            if ((_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED) &&
-                _hal->settings()->getBool("system", "gps_sleep"))
+            if (millis() - _gps_periodic_sync_start_ms > GPS_WAKEUP_STALE_DELAY_MS)
             {
-                _gps->setSleep(true);
+                ESP_LOGI(TAG, "Periodic RTC sync complete, putting GPS back to sleep");
+                if ((_config.position == MeshConfig::POSITION_OFF || _config.position == MeshConfig::POSITION_FIXED) &&
+                    _hal->settings()->getBool("system", "gps_sleep"))
+                {
+                    _gps->setSleep(true);
+                }
+                _gps_periodic_sync_active = false;
+                _last_gps_periodic_sync_ms = millis();
             }
-            _gps_periodic_sync_active = false;
-            _last_gps_periodic_sync_ms = millis();
         }
     }
 
@@ -2947,10 +2952,9 @@ namespace Mesh
                 if (position.location_source >= meshtastic_Position_LocSource_LOC_INTERNAL || sys_now < (BUILD_TIMESTAMP - 86400))
                 {
                     time_t drift = (time_t)position.time - sys_now;
-                    if (drift < 0) drift = -drift;
 
-                    // Sync if we've drifted significantly or are stuck at epoch
-                    if (drift > GPS_SIGNIFICANT_DRIFT_S || sys_now < (BUILD_TIMESTAMP - 86400))
+                    // Sync if we've drifted significantly (only accept if we are behind) or are stuck at epoch
+                    if (drift > MESH_SIGNIFICANT_DRIFT_S || sys_now < (BUILD_TIMESTAMP - 86400))
                     {
                         struct timeval tv = {.tv_sec = (time_t)position.time, .tv_usec = 0};
                         settimeofday(&tv, nullptr);

@@ -63,7 +63,13 @@ namespace
 static constexpr time_t BUILD_TIME_SLACK_S = 24 * 60 * 60; // 1 day
 
 // Minimum GPS-vs-system-clock drift (seconds) that triggers a time adjustment.
-static constexpr time_t GPS_SIGNIFICANT_DRIFT_S = 60;
+static constexpr time_t GPS_SIGNIFICANT_DRIFT_S = 60; // 1 minute
+
+// Minimum Mesh-vs-system-clock drift (seconds) that triggers a time adjustment.
+static constexpr time_t MESH_SIGNIFICANT_DRIFT_S = 300; // 5 minutes
+
+// Delay after waking up the GPS to wait for fresh sentences (skip stale buffer)
+static constexpr uint32_t GPS_WAKEUP_STALE_DELAY_MS = 3000;
 
 // Interval (seconds) at which to periodically wake up the GPS (if sleeping) to sync RTC
 static constexpr time_t GPS_PERIODIC_SYNC_INTERVAL_S = 1 * 60 * 60; // 1 hours
