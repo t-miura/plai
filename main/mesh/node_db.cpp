@@ -39,6 +39,36 @@ static FILE* fopen_nobuf(const char* path, const char* mode)
 
 namespace Mesh
 {
+    static bool write_atomic(const char* final_path, std::function<bool(FILE*)> write_func)
+    {
+        std::string tmp_path = std::string(final_path) + ".tmp";
+        FILE* file = fopen(tmp_path.c_str(), "wb");
+        if (!file)
+        {
+            ESP_LOGE(TAG, "Failed to open %s for atomic write", tmp_path.c_str());
+            return false;
+        }
+
+        bool success = write_func(file);
+        fclose(file);
+
+        if (success)
+        {
+            unlink(final_path); // ensure the old file is removed
+            if (rename(tmp_path.c_str(), final_path) != 0)
+            {
+                ESP_LOGE(TAG, "Failed to rename %s to %s", tmp_path.c_str(), final_path);
+                return false;
+            }
+            return true;
+        }
+        else
+        {
+            unlink(tmp_path.c_str());
+            return false;
+        }
+    }
+
 
     NodeDB::NodeDB()
         : _current_sort_order(SortOrder::LAST_HEARD), _sort_valid(false), _our_node_id(0), _our_lat_i(0), _our_lon_i(0),
@@ -207,31 +237,25 @@ namespace Mesh
     bool NodeDB::saveNodeToFile(const NodeInfo& node)
     {
         std::string path = getNodeFilePath(node.info.num);
-        FILE* file = fopen(path.c_str(), "wb");
-        if (!file)
-        {
-            ESP_LOGE(TAG, "Failed to open %s for writing", path.c_str());
-            return false;
-        }
+        bool success = write_atomic(path.c_str(), [&](FILE* file) -> bool {
+            bool ok = false;
+            uint8_t buffer[meshtastic_NodeInfo_size + 16];
 
-        bool success = false;
-        uint8_t buffer[meshtastic_NodeInfo_size + 16];
+            pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+            if (pb_encode(&stream, meshtastic_NodeInfo_fields, &node.info))
+            {
+                // Write length prefix
+                uint16_t len = stream.bytes_written;
+                fwrite(&len, sizeof(len), 1, file);
+                fwrite(buffer, 1, len, file);
 
-        pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
-        if (pb_encode(&stream, meshtastic_NodeInfo_fields, &node.info))
-        {
-            // Write length prefix
-            uint16_t len = stream.bytes_written;
-            fwrite(&len, sizeof(len), 1, file);
-            fwrite(buffer, 1, len, file);
-
-            // Write RSSI and relay_node (not in protobuf)
-            fwrite(&node.last_rssi, sizeof(node.last_rssi), 1, file);
-            fwrite(&node.relay_node, sizeof(node.relay_node), 1, file);
-            success = true;
-        }
-
-        fclose(file);
+                // Write RSSI and relay_node (not in protobuf)
+                fwrite(&node.last_rssi, sizeof(node.last_rssi), 1, file);
+                fwrite(&node.relay_node, sizeof(node.relay_node), 1, file);
+                ok = true;
+            }
+            return ok;
+        });
 
         if (success)
         {
@@ -344,43 +368,38 @@ namespace Mesh
 
     bool NodeDB::saveIndex()
     {
-        FILE* file = ::fopen(MANIFEST_FILE, "wb");
-        if (!file)
-        {
-            ESP_LOGE(TAG, "Failed to open %s for writing", MANIFEST_FILE);
-            return false;
-        }
-        char buf[512];
-        setvbuf(file, buf, _IOFBF, sizeof(buf));
+        return write_atomic(MANIFEST_FILE, [this](FILE* file) -> bool {
+            char buf[512];
+            setvbuf(file, buf, _IOFBF, sizeof(buf));
 
-        // Write header
-        uint32_t magic = MANIFEST_MAGIC;
-        uint32_t version = MANIFEST_VERSION;
-        uint32_t count = _index.size();
+            // Write header
+            uint32_t magic = MANIFEST_MAGIC;
+            uint32_t version = MANIFEST_VERSION;
+            uint32_t count = _index.size();
 
-        fwrite(&magic, sizeof(magic), 1, file);
-        fwrite(&version, sizeof(version), 1, file);
-        fwrite(&count, sizeof(count), 1, file);
+            fwrite(&magic, sizeof(magic), 1, file);
+            fwrite(&version, sizeof(version), 1, file);
+            fwrite(&count, sizeof(count), 1, file);
 
-        // Write entries
-        for (const auto& entry : _index)
-        {
-            fwrite(&entry.node_id, sizeof(entry.node_id), 1, file);
-            fwrite(&entry.last_heard, sizeof(entry.last_heard), 1, file);
-            fwrite(&entry.last_rssi, sizeof(entry.last_rssi), 1, file);
-            fwrite(&entry.flags, sizeof(entry.flags), 1, file);
-            fwrite(&entry.short_name, sizeof(entry.short_name), 1, file);
-            fwrite(&entry.long_name, sizeof(entry.long_name), 1, file);
-            fwrite(&entry.role, sizeof(entry.role), 1, file);
-            fwrite(&entry.hops_away, sizeof(entry.hops_away), 1, file);
-            fwrite(&entry.snr, sizeof(entry.snr), 1, file);
-            fwrite(&entry.latitude_i, sizeof(entry.latitude_i), 1, file);
-            fwrite(&entry.longitude_i, sizeof(entry.longitude_i), 1, file);
-        }
+            // Write entries
+            for (const auto& entry : _index)
+            {
+                fwrite(&entry.node_id, sizeof(entry.node_id), 1, file);
+                fwrite(&entry.last_heard, sizeof(entry.last_heard), 1, file);
+                fwrite(&entry.last_rssi, sizeof(entry.last_rssi), 1, file);
+                fwrite(&entry.flags, sizeof(entry.flags), 1, file);
+                fwrite(&entry.short_name, sizeof(entry.short_name), 1, file);
+                fwrite(&entry.long_name, sizeof(entry.long_name), 1, file);
+                fwrite(&entry.role, sizeof(entry.role), 1, file);
+                fwrite(&entry.hops_away, sizeof(entry.hops_away), 1, file);
+                fwrite(&entry.snr, sizeof(entry.snr), 1, file);
+                fwrite(&entry.latitude_i, sizeof(entry.latitude_i), 1, file);
+                fwrite(&entry.longitude_i, sizeof(entry.longitude_i), 1, file);
+            }
 
-        fclose(file);
-        ESP_LOGD(TAG, "Saved index with %d entries", _index.size());
-        return true;
+            ESP_LOGD(TAG, "Saved index with %d entries", _index.size());
+            return true;
+        });
     }
 
     bool NodeDB::rebuildIndex()
@@ -1206,34 +1225,28 @@ namespace Mesh
 
     bool NodeDB::savePrefs()
     {
-        FILE* file = fopen(PREFS_FILE, "wb");
-        if (!file)
-        {
-            ESP_LOGE(TAG, "Failed to open %s for writing", PREFS_FILE);
-            return false;
-        }
+        return write_atomic(PREFS_FILE, [this](FILE* file) -> bool {
+            // Save LocalConfig
+            uint8_t buffer[meshtastic_LocalConfig_size];
+            pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+            if (pb_encode(&stream, meshtastic_LocalConfig_fields, &_local_config))
+            {
+                uint16_t len = stream.bytes_written;
+                fwrite(&len, sizeof(len), 1, file);
+                fwrite(buffer, 1, len, file);
+            }
 
-        // Save LocalConfig
-        uint8_t buffer[meshtastic_LocalConfig_size];
-        pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
-        if (pb_encode(&stream, meshtastic_LocalConfig_fields, &_local_config))
-        {
-            uint16_t len = stream.bytes_written;
-            fwrite(&len, sizeof(len), 1, file);
-            fwrite(buffer, 1, len, file);
-        }
+            // Save LocalModuleConfig
+            stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+            if (pb_encode(&stream, meshtastic_LocalModuleConfig_fields, &_local_module_config))
+            {
+                uint16_t len = stream.bytes_written;
+                fwrite(&len, sizeof(len), 1, file);
+                fwrite(buffer, 1, len, file);
+            }
 
-        // Save LocalModuleConfig
-        stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
-        if (pb_encode(&stream, meshtastic_LocalModuleConfig_fields, &_local_module_config))
-        {
-            uint16_t len = stream.bytes_written;
-            fwrite(&len, sizeof(len), 1, file);
-            fwrite(buffer, 1, len, file);
-        }
-
-        fclose(file);
-        return true;
+            return true;
+        });
     }
 
     bool NodeDB::loadPrefs()
@@ -1274,28 +1287,22 @@ namespace Mesh
 
     bool NodeDB::saveChannels()
     {
-        FILE* file = fopen(CHANNELS_FILE, "wb");
-        if (!file)
-        {
-            ESP_LOGE(TAG, "Failed to open %s for writing", CHANNELS_FILE);
-            return false;
-        }
+        return write_atomic(CHANNELS_FILE, [this](FILE* file) -> bool {
+            uint8_t buffer[meshtastic_Channel_size];
 
-        uint8_t buffer[meshtastic_Channel_size];
-
-        for (int i = 0; i < 8; i++)
-        {
-            pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
-            if (pb_encode(&stream, meshtastic_Channel_fields, &_channels[i]))
+            for (int i = 0; i < 8; i++)
             {
-                uint16_t len = stream.bytes_written;
-                fwrite(&len, sizeof(len), 1, file);
-                fwrite(buffer, 1, len, file);
+                pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+                if (pb_encode(&stream, meshtastic_Channel_fields, &_channels[i]))
+                {
+                    uint16_t len = stream.bytes_written;
+                    fwrite(&len, sizeof(len), 1, file);
+                    fwrite(buffer, 1, len, file);
+                }
             }
-        }
 
-        fclose(file);
-        return true;
+            return true;
+        });
     }
 
     bool NodeDB::loadChannels()
@@ -1379,15 +1386,10 @@ namespace Mesh
 
     bool NodeDB::saveGreetings()
     {
-        FILE* file = fopen(GREETINGS_FILE, "wb");
-        if (!file)
-        {
-            ESP_LOGE(TAG, "Failed to open %s for writing", GREETINGS_FILE);
-            return false;
-        }
-        fwrite(_greetings, sizeof(_greetings), 1, file);
-        fclose(file);
-        return true;
+        return write_atomic(GREETINGS_FILE, [this](FILE* file) -> bool {
+            fwrite(_greetings, sizeof(_greetings), 1, file);
+            return true;
+        });
     }
 
     bool NodeDB::loadGreetings()
@@ -1517,12 +1519,9 @@ namespace Mesh
             ::remove(FAVORITES_FILE);
             return true;
         }
-        f = fopen(FAVORITES_FILE, "wb");
-        if (!f)
-            return false;
-        fwrite(ids.data(), sizeof(uint32_t), ids.size(), f);
-        fclose(f);
-        return true;
+        return write_atomic(FAVORITES_FILE, [&](FILE* f) -> bool {
+            return fwrite(ids.data(), sizeof(uint32_t), ids.size(), f) == ids.size();
+        });
     }
 
     bool favorites_remove_at(size_t index)
@@ -1549,12 +1548,9 @@ namespace Mesh
             ::remove(FAVORITES_FILE);
             return true;
         }
-        f = fopen(FAVORITES_FILE, "wb");
-        if (!f)
-            return false;
-        fwrite(ids.data(), sizeof(uint32_t), ids.size(), f);
-        fclose(f);
-        return true;
+        return write_atomic(FAVORITES_FILE, [&](FILE* f) -> bool {
+            return fwrite(ids.data(), sizeof(uint32_t), ids.size(), f) == ids.size();
+        });
     }
 
     void favorites_clear() { ::remove(FAVORITES_FILE); }
@@ -1653,12 +1649,9 @@ namespace Mesh
             ::remove(IGNORELIST_FILE);
             return true;
         }
-        f = fopen(IGNORELIST_FILE, "wb");
-        if (!f)
-            return false;
-        fwrite(ids.data(), sizeof(uint32_t), ids.size(), f);
-        fclose(f);
-        return true;
+        return write_atomic(IGNORELIST_FILE, [&](FILE* f) -> bool {
+            return fwrite(ids.data(), sizeof(uint32_t), ids.size(), f) == ids.size();
+        });
     }
 
     bool ignorelist_remove_at(size_t index)
@@ -1685,12 +1678,9 @@ namespace Mesh
             ::remove(IGNORELIST_FILE);
             return true;
         }
-        f = fopen(IGNORELIST_FILE, "wb");
-        if (!f)
-            return false;
-        fwrite(ids.data(), sizeof(uint32_t), ids.size(), f);
-        fclose(f);
-        return true;
+        return write_atomic(IGNORELIST_FILE, [&](FILE* f) -> bool {
+            return fwrite(ids.data(), sizeof(uint32_t), ids.size(), f) == ids.size();
+        });
     }
 
     void ignorelist_clear() { ::remove(IGNORELIST_FILE); }
@@ -1716,12 +1706,9 @@ namespace Mesh
             ::remove(path.c_str());
             return true;
         }
-        FILE* f = fopen(path.c_str(), "wb");
-        if (!f)
-            return false;
-        bool ok = fwrite(entries.data(), sizeof(NeighborEntry), entries.size(), f) == entries.size();
-        fclose(f);
-        return ok;
+        return write_atomic(path.c_str(), [&](FILE* f) -> bool {
+            return fwrite(entries.data(), sizeof(NeighborEntry), entries.size(), f) == entries.size();
+        });
     }
 
     bool neighbors_load(uint32_t source_node_id, std::vector<NeighborEntry>& out)
