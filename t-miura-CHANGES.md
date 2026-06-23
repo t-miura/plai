@@ -35,6 +35,8 @@ With limited memory (single-digit KB free heap on main), these optimizations wer
 * **Unbuffered Streams**: Configured file-local `fopen` operations to run unbuffered (`_IONBF`) to bypass newlib's default 4KB heap-allocated buffer for C streams.
 * **AppNodes `LoadProhibited` Panic**: Fixed crashes when exiting the node UI by thoroughly initializing garbage state variables (`_data` members) during `onCreate()` and replacing vulnerable pointer subtractions with safe, bounds-checked loops (`app_nodes.cpp`).
 
+* **[EXPERIMENTAL] from newlibc to picolibc**: While it's in experimental thing, switching libc from newlibc to picolibc gives many benefits according to [Official Blog](https://developer.espressif.com/blog/2026/04/esp-idf-6-default-libc-picolibc/). So current codebase is using picolibc with some fixes on map loading/rendering logic to fill the gap between these two's behavior, and working fine with every single functions so far.
+
 ## 5. UI & User Experience Enhancements
 
 * **Emoji Font Support (Ultra-Low Resolution)**: We implemented a mean-adaptive thresholding script (`emoji_converter.py`) to binarize 12x12 monochrome emojis reliably. The generated C++ arrays (`builtin_emojis.cpp`) are cleanly integrated via `emoji_draw_callback` for lightning-fast UI rendering without SD card lag. The original d4rkmen "emoji png from sdcard" feature is still active, so any missing emojis and other characters will be loaded from the SD card, just like the current upstream release does. We will add an option to disable "emoji-from-internal-font" to strictly use emojis from the SD card for a more visually pleasing look, in exchange for a slight delay on load (rest assured, there are up to 10 emojis cached in memory, just like upstream!).
