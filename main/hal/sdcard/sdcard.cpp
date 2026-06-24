@@ -82,10 +82,12 @@ bool SDCard::mount(bool format_if_mount_failed)
     slot_config.gpio_cs = PIN_NUM_CS;
     slot_config.host_id = (spi_host_device_t)host.slot;
 
-    // Set frequency to 10MHz for better stability.
-    // WARNING: Do not increase to 20MHz on Cardputer ADV, as the shared SPI bus lines
-    // will experience signal crosstalk and reflections that cause the SX1262 LoRa radio
-    // to receive corrupted command bytes and hang (leading to TX queue full).
+    // Set SD card SPI frequency to 10MHz for better stability across all devices on single shared SPI bus.
+    // WARNING: Do not increase to 20MHz on Cardputer ADV with Cap LoRa-1262,
+    // as the SPI bus where SD card lives is shared with SX1262 which can run only up to 18MHz,
+    // there are potential risks when SD card is running at higher frequency than this, even SX1262 is not selected.
+    // While erformance boost from 10MHz to 20MHz might be nice on SD card access,
+    // but to ensure system-wide stability, we will use 10MHz for SD card too.
     host.max_freq_khz = 10000;
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {.format_if_mount_failed = format_if_mount_failed,
