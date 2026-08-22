@@ -1244,10 +1244,10 @@ static const char* _hw_model_name(meshtastic_HardwareModel model)
         return "Station G1";
     case meshtastic_HardwareModel_RAK11310:
         return "RAK11310";
-    case meshtastic_HardwareModel_SENSELORA_RP2040:
-        return "SenseLora 2040";
-    case meshtastic_HardwareModel_SENSELORA_S3:
-        return "SenseLora S3";
+    case meshtastic_HardwareModel_MAKERFABS_TRACKER:
+        return "Makerfabs Tracker";
+    case meshtastic_HardwareModel_MAKERFABS_RESERVED:
+        return "Makerfabs";
     case meshtastic_HardwareModel_CANARYONE:
         return "CanaryOne";
     case meshtastic_HardwareModel_RP2040_LORA:

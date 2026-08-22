@@ -67,7 +67,7 @@ namespace Mesh
         uint8_t sf;
     };
 
-    static constexpr size_t MODEM_PRESET_COUNT = 10;
+    static constexpr size_t MODEM_PRESET_COUNT = 14;
     extern const ModemPresetInfo modem_presets[MODEM_PRESET_COUNT];
 
     inline const ModemPresetInfo* getModemPresetInfo(int index)

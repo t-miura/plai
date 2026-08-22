@@ -145,7 +145,7 @@ namespace SETTINGS
              "LongFast",
              "LongFast",
              "LongFast;LongSlow;VeryLongSlow;MediumSlow;MediumFast;ShortFast;ShortSlow;LongModerate;ShortTurbo;LongTurbo;"
-             "Custom",
+             "LiteFast;LiteSlow;NarrowFast;NarrowSlow;Custom",
              "",
              "LoRa modem preset (Custom = set bandwidth/coding rate/spreading factor manually)",
              mesh_apply_cb},

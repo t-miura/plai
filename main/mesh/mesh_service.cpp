@@ -92,9 +92,8 @@ namespace Mesh
                                          RDEF(PH_915, 915.0f, 918.0f, 100, 0, 24, true, false, false),
                                          RDEF(UNSET, 902.0f, 928.0f, 100, 0, 30, true, false, false)};
 
-    // Modem preset lookup table (indexed by meshtastic_Config_LoRaConfig_ModemPreset enum 0..9)
-    //                                                preset enum                                                       name
-    //                                                short    bw      bw_wide    cr  sf
+    // Modem preset lookup table (indexed by meshtastic_Config_LoRaConfig_ModemPreset enum 0..13)
+    //                                                preset enum                                                       name           short    bw      bw_wide    cr  sf
     const ModemPresetInfo modem_presets[MODEM_PRESET_COUNT] = {
         {meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, "LongFast", "LongF", 250.0f, 812.5f, 5, 11},
         {meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW, "LongSlow", "LongS", 125.0f, 406.25f, 8, 12},
@@ -106,6 +105,10 @@ namespace Mesh
         {meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE, "LongMod", "LongM", 125.0f, 406.25f, 8, 11},
         {meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO, "ShortTurbo", "ShrtT", 500.0f, 1625.0f, 5, 7},
         {meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO, "LongTurbo", "LongT", 500.0f, 1625.0f, 8, 11},
+        {meshtastic_Config_LoRaConfig_ModemPreset_LITE_FAST, "LiteFast", "LiteF", 125.0f, 125.0f, 5, 9},
+        {meshtastic_Config_LoRaConfig_ModemPreset_LITE_SLOW, "LiteSlow", "LiteS", 125.0f, 125.0f, 5, 10},
+        {meshtastic_Config_LoRaConfig_ModemPreset_NARROW_FAST, "NarrowFast", "NarF", 62.5f, 62.5f, 6, 7},
+        {meshtastic_Config_LoRaConfig_ModemPreset_NARROW_SLOW, "NarrowSlow", "NarS", 62.5f, 62.5f, 6, 8},
     };
 
     // Hash function for channel name (djb2)
@@ -4534,6 +4537,14 @@ namespace Mesh
             return meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO;
         if (name == "LongTurbo")
             return meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO;
+        if (name == "LiteFast")
+            return meshtastic_Config_LoRaConfig_ModemPreset_LITE_FAST;
+        if (name == "LiteSlow")
+            return meshtastic_Config_LoRaConfig_ModemPreset_LITE_SLOW;
+        if (name == "NarrowFast")
+            return meshtastic_Config_LoRaConfig_ModemPreset_NARROW_FAST;
+        if (name == "NarrowSlow")
+            return meshtastic_Config_LoRaConfig_ModemPreset_NARROW_SLOW;
         return meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
     }
 
