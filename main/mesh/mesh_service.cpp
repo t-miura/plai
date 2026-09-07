@@ -731,7 +731,10 @@ namespace Mesh
                     uint32_t deadline = last_tx_end + pause_ms;
                     if (deadline == 0)
                         deadline = 1;
-                    _tx_not_before_ms = deadline;
+                    if (_tx_not_before_ms == 0 || (int32_t)(deadline - _tx_not_before_ms) > 0)
+                    {
+                        _tx_not_before_ms = deadline;
+                    }
                     ESP_LOGD(TAG, "JP LBT: deferring for mandatory 50ms pause (remaining %ld ms)",
                              (long)((int32_t)(deadline - now) > 0 ? (int32_t)(deadline - now) : 0));
                     can_start_cad = false;
@@ -890,6 +893,10 @@ namespace Mesh
         if (was_transmitting)
         {
             uint32_t tx_now = millis();
+            if (_last_tx_start_ms > 0 && (int32_t)(tx_now - _last_tx_start_ms) > 0)
+            {
+                _recordAirtime(tx_now - _last_tx_start_ms, true);
+            }
             _japan_tx_hook.postTransmit(_radio, nullptr);
             setTxDelay();
             uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
@@ -904,6 +911,7 @@ namespace Mesh
                 }
             }
         }
+        _last_tx_start_ms = 0;
 
         if (_radio)
         {
@@ -1664,10 +1672,11 @@ namespace Mesh
             ESP_LOGD(TAG, "Radio TX done");
             // Record TX airtime
             uint32_t tx_now = millis();
-            if (_last_tx_start_ms > 0 && tx_now > _last_tx_start_ms)
+            if (_last_tx_start_ms > 0 && (int32_t)(tx_now - _last_tx_start_ms) > 0)
             {
                 _recordAirtime(tx_now - _last_tx_start_ms, true);
             }
+            _last_tx_start_ms = 0;
             _japan_tx_hook.postTransmit(_radio, nullptr);
             _tx_in_progress = false;
             setTxDelay();
@@ -1802,7 +1811,10 @@ namespace Mesh
                     uint32_t deadline = millis() + defer_ms;
                     if (deadline == 0)
                         deadline = 1;
-                    _tx_not_before_ms = deadline;
+                    if (_tx_not_before_ms == 0 || (int32_t)(deadline - _tx_not_before_ms) > 0)
+                    {
+                        _tx_not_before_ms = deadline;
+                    }
                     _radio->startReceive(0);
                     break;
                 }
@@ -1867,10 +1879,11 @@ namespace Mesh
         {
             ESP_LOGW(TAG, "Radio TX timeout");
             uint32_t tx_now = millis();
-            if (_last_tx_start_ms > 0 && tx_now > _last_tx_start_ms)
+            if (_last_tx_start_ms > 0 && (int32_t)(tx_now - _last_tx_start_ms) > 0)
             {
                 _recordAirtime(tx_now - _last_tx_start_ms, true);
             }
+            _last_tx_start_ms = 0;
             _japan_tx_hook.postTransmit(_radio, nullptr);
             _tx_in_progress = false;
             _cad_in_progress = false;
@@ -1896,11 +1909,15 @@ namespace Mesh
             if (_tx_in_progress)
             {
                 uint32_t tx_now = millis();
-                if (_last_tx_start_ms > 0 && tx_now > _last_tx_start_ms)
+                if (_last_tx_start_ms > 0 && (int32_t)(tx_now - _last_tx_start_ms) > 0)
                 {
                     _recordAirtime(tx_now - _last_tx_start_ms, true);
                 }
+                _last_tx_start_ms = 0;
                 _japan_tx_hook.postTransmit(_radio, nullptr);
+                _tx_in_progress = false;
+                _cad_in_progress = false;
+                setTxDelay();
                 uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
                 if (pause_ms > 0)
                 {
@@ -1916,10 +1933,10 @@ namespace Mesh
             else
             {
                 _japan_tx_hook.packetReleased(_radio, nullptr);
+                _tx_in_progress = false;
+                _cad_in_progress = false;
+                setTxDelay();
             }
-            _tx_in_progress = false;
-            _cad_in_progress = false;
-            setTxDelay();
             _radio->startReceive(0);
             break;
         }
