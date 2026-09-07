@@ -3,6 +3,7 @@
  * @brief ARIB STD-T108 regulatory transmit hook implementation for Japan (JP) region
  */
 
+#include "mesh_service.h"
 #include "japan_tx_hook.h"
 #include "hal/radio/radio_interface.h"
 #include "esp_log.h"
@@ -19,6 +20,16 @@ namespace Mesh
 
     JapanTxHook* japanTxHook = nullptr;
 
+    void setGlobalJapanTxHook(JapanTxHook* hook)
+    {
+        japanTxHook = hook;
+    }
+
+    void initJapanTxHook(JapanTxHook* hook)
+    {
+        setGlobalJapanTxHook(hook);
+    }
+
     uint32_t getTxPauseDurationMs()
     {
         return JapanTxHook::getTxPauseDurationMs();
@@ -26,8 +37,7 @@ namespace Mesh
 
     JapanTxHook::JapanTxHook() : RadioTxHook()
     {
-        if (!japanTxHook)
-            japanTxHook = this;
+        // Side-effect-free constructor (Rule 6 invariant)
     }
 
     JapanTxHook::~JapanTxHook()
@@ -40,6 +50,9 @@ namespace Mesh
     {
         if (japanTxHook)
             return japanTxHook->isJapan();
+        MeshService* svc = MeshService::getInstance();
+        if (svc && svc->getMyRegion())
+            return svc->getMyRegion()->code == meshtastic_Config_LoRaConfig_RegionCode_JP;
         return false;
     }
 
@@ -133,7 +146,7 @@ namespace Mesh
         }
 
         // R2: Inter-Transmission Pause Duration Enforcement (>= 50ms)
-        const uint32_t pauseMs = getTxPauseDurationMs();
+        const uint32_t pauseMs = isJapan() ? INTER_TX_PAUSE_MS : 0;
         const uint32_t now = millis();
         if (_lastTxEndTime != 0 && (now - _lastTxEndTime < pauseMs))
         {

@@ -442,6 +442,7 @@ namespace Mesh
         memset(&_config, 0, sizeof(_config));
         _gps_queue = xQueueCreate(1, sizeof(HAL::GpsData));
         _instance = this;
+        setGlobalJapanTxHook(&_japan_tx_hook);
     }
 
     MeshService::~MeshService()
@@ -451,6 +452,10 @@ namespace Mesh
         {
             vQueueDelete(_gps_queue);
             _gps_queue = nullptr;
+        }
+        if (japanTxHook == &_japan_tx_hook)
+        {
+            setGlobalJapanTxHook(nullptr);
         }
         _instance = nullptr;
     }
@@ -712,7 +717,8 @@ namespace Mesh
         }
 
         // Check TX queue: when CSMA/CA delay has elapsed, start CAD before transmitting
-        if (_router.hasTxPackets() && _radio && !_radio->isBusy() && !_cad_in_progress && now >= _tx_not_before_ms)
+        if (_router.hasTxPackets() && _radio && !_radio->isBusy() && !_cad_in_progress &&
+            (_tx_not_before_ms == 0 || (int32_t)(now - _tx_not_before_ms) >= 0))
         {
             bool can_start_cad = true;
             if (_japan_tx_hook.isJapanRegion())
@@ -843,7 +849,18 @@ namespace Mesh
     void MeshService::setTxDelay()
     {
         uint32_t now = millis();
-        _tx_not_before_ms = now + getTxDelayMsec();
+        uint32_t delay_deadline = now + getTxDelayMsec();
+        if (delay_deadline == 0)
+            delay_deadline = 1;
+        // Do not shorten an existing active future deadline (e.g. JP pause or exponential backoff)
+        if (_tx_not_before_ms == 0 || (int32_t)(now - _tx_not_before_ms) >= 0)
+        {
+            _tx_not_before_ms = delay_deadline;
+        }
+        else if ((int32_t)(delay_deadline - _tx_not_before_ms) > 0)
+        {
+            _tx_not_before_ms = delay_deadline;
+        }
     }
 
     void MeshService::startTxCAD()
@@ -1635,6 +1652,17 @@ namespace Mesh
             _japan_tx_hook.postTransmit(_radio, nullptr);
             _tx_in_progress = false;
             setTxDelay();
+            uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+            if (pause_ms > 0)
+            {
+                uint32_t pause_deadline = tx_now + pause_ms;
+                if (pause_deadline == 0)
+                    pause_deadline = 1;
+                if (_tx_not_before_ms == 0 || (int32_t)(pause_deadline - _tx_not_before_ms) > 0)
+                {
+                    _tx_not_before_ms = pause_deadline;
+                }
+            }
             // Restart receive
             _radio->startReceive(0);
             break;
@@ -1736,7 +1764,6 @@ namespace Mesh
         {
             _cad_in_progress = false;
             ESP_LOGD(TAG, "CAD clear, transmitting");
-            uint32_t tx_now = millis();
             QueuedPacket qp;
             if (_router.peekTx(qp))
             {
@@ -1763,10 +1790,11 @@ namespace Mesh
 
                 _router.dequeueTx(qp);
                 ESP_LOGD(TAG, "Transmitting packet, %d bytes", qp.raw_len);
+                uint32_t transmit_start_ms = millis();
                 if (_radio->transmit(qp.raw_data, qp.raw_len))
                 {
                     _tx_in_progress = true;
-                    _last_tx_start_ms = tx_now;
+                    _last_tx_start_ms = transmit_start_ms;
 #if HAL_USE_LED
                     if (_hal->led())
                         _hal->led()->blink_once({0, 255, 0}, 50);
@@ -1776,7 +1804,7 @@ namespace Mesh
                         PacketHeader hdr;
                         memcpy(&hdr, qp.raw_data, sizeof(hdr));
                         PacketLogEntry le = {};
-                        le.timestamp_ms = tx_now;
+                        le.timestamp_ms = transmit_start_ms;
                         le.from = hdr.from;
                         le.to = hdr.to;
                         le.id = hdr.id;
@@ -1811,7 +1839,6 @@ namespace Mesh
         case HAL::RadioEvent::CAD_DETECTED:
             _cad_in_progress = false;
             ESP_LOGD(TAG, "CAD detected activity, backing off");
-            _japan_tx_hook.packetReleased(_radio, nullptr);
             setTxDelay();
             _radio->startReceive(0);
             break;
@@ -3581,10 +3608,7 @@ namespace Mesh
 
         bool is_jp = (_my_region && _my_region->code == meshtastic_Config_LoRaConfig_RegionCode_JP);
         _japan_tx_hook.setJapanRegion(is_jp);
-        if (!is_jp)
-        {
-            _japan_tx_hook.reset();
-        }
+        _japan_tx_hook.reset();
     }
 
     void MeshService::applyModemConfig()

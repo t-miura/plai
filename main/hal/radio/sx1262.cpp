@@ -1161,8 +1161,8 @@ namespace HAL
         // Set antenna for TX
         setAntenna(true);
 
-        // Start transmission (3 second timeout)
-        setTx(3000);
+        // Start transmission (5 second hardware timeout to accommodate up to 4000ms airtime)
+        setTx(5000);
 
         _mode = RadioMode::TX;
         return true;

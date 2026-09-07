@@ -78,6 +78,8 @@ namespace Mesh
     };
 
     extern JapanTxHook* japanTxHook;
+    void setGlobalJapanTxHook(JapanTxHook* hook);
+    void initJapanTxHook(JapanTxHook* hook);
     uint32_t getTxPauseDurationMs();
 
 } // namespace Mesh

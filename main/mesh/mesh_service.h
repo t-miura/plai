@@ -565,7 +565,7 @@ namespace Mesh
         // TX watchdog (recovery if TX_DONE never arrives)
         bool _tx_in_progress;
         uint32_t _last_tx_start_ms;
-        static constexpr uint32_t TX_WATCHDOG_TIMEOUT_MS = 4000;
+        static constexpr uint32_t TX_WATCHDOG_TIMEOUT_MS = 5000;
 
         // Last received packet SNR (for traceroute)
         int16_t _last_rx_rssi;
