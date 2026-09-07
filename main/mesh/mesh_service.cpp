@@ -732,8 +732,8 @@ namespace Mesh
                     if (deadline == 0)
                         deadline = 1;
                     _tx_not_before_ms = deadline;
-                    ESP_LOGD(TAG, "JP LBT: deferring for mandatory 50ms pause (remaining %lu ms)",
-                             (unsigned long)(deadline > now ? deadline - now : 0));
+                    ESP_LOGD(TAG, "JP LBT: deferring for mandatory 50ms pause (remaining %ld ms)",
+                             (long)((int32_t)(deadline - now) > 0 ? (int32_t)(deadline - now) : 0));
                     can_start_cad = false;
                 }
                 else
@@ -880,11 +880,30 @@ namespace Mesh
 
     void MeshService::recoverRadio()
     {
+        bool was_transmitting = _tx_in_progress;
         _tx_in_progress = false;
         _cad_in_progress = false;
         _last_tx_or_rx_activity_ms = millis();
         _last_cad_start_ms = 0;
         _last_busy_high_ms = 0;
+
+        if (was_transmitting)
+        {
+            uint32_t tx_now = millis();
+            _japan_tx_hook.postTransmit(_radio, nullptr);
+            setTxDelay();
+            uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+            if (pause_ms > 0)
+            {
+                uint32_t pause_deadline = tx_now + pause_ms;
+                if (pause_deadline == 0)
+                    pause_deadline = 1;
+                if (_tx_not_before_ms == 0 || (int32_t)(pause_deadline - _tx_not_before_ms) > 0)
+                {
+                    _tx_not_before_ms = pause_deadline;
+                }
+            }
+        }
 
         if (_radio)
         {
@@ -1825,6 +1844,7 @@ namespace Mesh
                 {
                     ESP_LOGW(TAG, "Radio TX start failed after CAD");
                     _japan_tx_hook.packetReleased(_radio, &qp);
+                    setTxDelay();
                     _radio->startReceive(0);
                 }
             }
@@ -1844,20 +1864,65 @@ namespace Mesh
             break;
 
         case HAL::RadioEvent::TX_TIMEOUT:
+        {
             ESP_LOGW(TAG, "Radio TX timeout");
-            _japan_tx_hook.packetReleased(_radio, nullptr);
+            uint32_t tx_now = millis();
+            if (_last_tx_start_ms > 0 && tx_now > _last_tx_start_ms)
+            {
+                _recordAirtime(tx_now - _last_tx_start_ms, true);
+            }
+            _japan_tx_hook.postTransmit(_radio, nullptr);
             _tx_in_progress = false;
             _cad_in_progress = false;
+            setTxDelay();
+            uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+            if (pause_ms > 0)
+            {
+                uint32_t pause_deadline = tx_now + pause_ms;
+                if (pause_deadline == 0)
+                    pause_deadline = 1;
+                if (_tx_not_before_ms == 0 || (int32_t)(pause_deadline - _tx_not_before_ms) > 0)
+                {
+                    _tx_not_before_ms = pause_deadline;
+                }
+            }
             _radio->startReceive(0);
             break;
+        }
 
         case HAL::RadioEvent::ERROR:
+        {
             ESP_LOGE(TAG, "Radio error");
-            _japan_tx_hook.packetReleased(_radio, nullptr);
+            if (_tx_in_progress)
+            {
+                uint32_t tx_now = millis();
+                if (_last_tx_start_ms > 0 && tx_now > _last_tx_start_ms)
+                {
+                    _recordAirtime(tx_now - _last_tx_start_ms, true);
+                }
+                _japan_tx_hook.postTransmit(_radio, nullptr);
+                uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+                if (pause_ms > 0)
+                {
+                    uint32_t pause_deadline = tx_now + pause_ms;
+                    if (pause_deadline == 0)
+                        pause_deadline = 1;
+                    if (_tx_not_before_ms == 0 || (int32_t)(pause_deadline - _tx_not_before_ms) > 0)
+                    {
+                        _tx_not_before_ms = pause_deadline;
+                    }
+                }
+            }
+            else
+            {
+                _japan_tx_hook.packetReleased(_radio, nullptr);
+            }
             _tx_in_progress = false;
             _cad_in_progress = false;
+            setTxDelay();
             _radio->startReceive(0);
             break;
+        }
         }
     }
 
