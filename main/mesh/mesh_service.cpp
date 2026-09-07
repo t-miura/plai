@@ -714,7 +714,45 @@ namespace Mesh
         // Check TX queue: when CSMA/CA delay has elapsed, start CAD before transmitting
         if (_router.hasTxPackets() && _radio && !_radio->isBusy() && !_cad_in_progress && now >= _tx_not_before_ms)
         {
-            startTxCAD();
+            bool can_start_cad = true;
+            if (_japan_tx_hook.isJapanRegion())
+            {
+                // Early pause check: if mandatory 50ms pause has not elapsed, defer without starting CAD
+                uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+                uint32_t last_tx_end = _japan_tx_hook.getLastTxEndTime();
+                if (last_tx_end != 0 && (now - last_tx_end < pause_ms))
+                {
+                    uint32_t deadline = last_tx_end + pause_ms;
+                    if (deadline == 0)
+                        deadline = 1;
+                    _tx_not_before_ms = deadline;
+                    ESP_LOGD(TAG, "JP LBT: deferring for mandatory 50ms pause (remaining %lu ms)",
+                             (unsigned long)(deadline > now ? deadline - now : 0));
+                    can_start_cad = false;
+                }
+                else
+                {
+                    // Early airtime check: drop oversized packets (> 4000ms airtime) immediately
+                    QueuedPacket head_pkt;
+                    if (_router.peekTx(head_pkt))
+                    {
+                        uint32_t airtime_ms = _estimateAirtimeMs(head_pkt.raw_len);
+                        if (airtime_ms > JapanTxHook::MAX_TX_DURATION_MS)
+                        {
+                            _router.dequeueTx(head_pkt);
+                            ESP_LOGW(TAG, "JP: packet airtime %lu ms exceeds ARIB STD-T108 4s limit (max %lu ms), dropping",
+                                     (unsigned long)airtime_ms, (unsigned long)JapanTxHook::MAX_TX_DURATION_MS);
+                            _japan_tx_hook.packetReleased(_radio, &head_pkt);
+                            setTxDelay();
+                            can_start_cad = false;
+                        }
+                    }
+                }
+            }
+            if (can_start_cad)
+            {
+                startTxCAD();
+            }
         }
 
         // Periodic node info broadcast (every 60 seconds), or forced immediately
@@ -1594,6 +1632,7 @@ namespace Mesh
             {
                 _recordAirtime(tx_now - _last_tx_start_ms, true);
             }
+            _japan_tx_hook.postTransmit(_radio, nullptr);
             _tx_in_progress = false;
             setTxDelay();
             // Restart receive
@@ -1699,8 +1738,30 @@ namespace Mesh
             ESP_LOGD(TAG, "CAD clear, transmitting");
             uint32_t tx_now = millis();
             QueuedPacket qp;
-            if (_router.dequeueTx(qp))
+            if (_router.peekTx(qp))
             {
+                uint32_t airtime_ms = _estimateAirtimeMs(qp.raw_len);
+                uint32_t defer_ms = 0;
+                RadioTxHook::PreTxAction action = _japan_tx_hook.beforeTransmit(_radio, &qp, airtime_ms, defer_ms);
+                if (action == RadioTxHook::PRETX_DROP)
+                {
+                    _router.dequeueTx(qp);
+                    _japan_tx_hook.packetReleased(_radio, &qp);
+                    setTxDelay();
+                    _radio->startReceive(0);
+                    break;
+                }
+                else if (action == RadioTxHook::PRETX_DEFER)
+                {
+                    uint32_t deadline = millis() + defer_ms;
+                    if (deadline == 0)
+                        deadline = 1;
+                    _tx_not_before_ms = deadline;
+                    _radio->startReceive(0);
+                    break;
+                }
+
+                _router.dequeueTx(qp);
                 ESP_LOGD(TAG, "Transmitting packet, %d bytes", qp.raw_len);
                 if (_radio->transmit(qp.raw_data, qp.raw_len))
                 {
@@ -1735,6 +1796,7 @@ namespace Mesh
                 else
                 {
                     ESP_LOGW(TAG, "Radio TX start failed after CAD");
+                    _japan_tx_hook.packetReleased(_radio, &qp);
                     _radio->startReceive(0);
                 }
             }
@@ -1749,12 +1811,14 @@ namespace Mesh
         case HAL::RadioEvent::CAD_DETECTED:
             _cad_in_progress = false;
             ESP_LOGD(TAG, "CAD detected activity, backing off");
+            _japan_tx_hook.packetReleased(_radio, nullptr);
             setTxDelay();
             _radio->startReceive(0);
             break;
 
         case HAL::RadioEvent::TX_TIMEOUT:
             ESP_LOGW(TAG, "Radio TX timeout");
+            _japan_tx_hook.packetReleased(_radio, nullptr);
             _tx_in_progress = false;
             _cad_in_progress = false;
             _radio->startReceive(0);
@@ -1762,6 +1826,7 @@ namespace Mesh
 
         case HAL::RadioEvent::ERROR:
             ESP_LOGE(TAG, "Radio error");
+            _japan_tx_hook.packetReleased(_radio, nullptr);
             _tx_in_progress = false;
             _cad_in_progress = false;
             _radio->startReceive(0);
@@ -3513,6 +3578,13 @@ namespace Mesh
                  r->freq_start,
                  r->freq_end,
                  r->power_limit);
+
+        bool is_jp = (_my_region && _my_region->code == meshtastic_Config_LoRaConfig_RegionCode_JP);
+        _japan_tx_hook.setJapanRegion(is_jp);
+        if (!is_jp)
+        {
+            _japan_tx_hook.reset();
+        }
     }
 
     void MeshService::applyModemConfig()

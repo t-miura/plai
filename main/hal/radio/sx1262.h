@@ -81,6 +81,7 @@ namespace HAL
         RadioMode getMode() const override;
         bool isBusy() const override;
         int16_t getRSSI() const override;
+        int16_t getCurrentRSSI() override;
         float getSNR() const override;
         void setEventCallback(RadioEventCallback callback) override;
         void processEvents() override;

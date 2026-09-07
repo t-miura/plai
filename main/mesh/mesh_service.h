@@ -22,6 +22,7 @@
 #include "hal/hal.h"
 #include "hal/radio/radio_interface.h"
 #include "packet_router.h"
+#include "japan_tx_hook.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/config.pb.h"
 #include "meshtastic/module_config.pb.h"
@@ -359,6 +360,24 @@ namespace Mesh
         PacketRouter& getRouter() { return _router; }
 
         /**
+         * @brief Get Japan regulatory TX hook
+         * @return JapanTxHook reference
+         */
+        JapanTxHook& getTxHook() { return _japan_tx_hook; }
+        const JapanTxHook& getTxHook() const { return _japan_tx_hook; }
+
+        /**
+         * @brief Get active region info pointer
+         * @return Pointer to active RegionInfo
+         */
+        const RegionInfo* getMyRegion() const { return _my_region; }
+
+        /**
+         * @brief Get singleton instance pointer
+         */
+        static MeshService* getInstance() { return _instance; }
+
+        /**
          * @brief Send our NodeInfo to a specific destination node.
          * @param dest       Destination node ID (0xFFFFFFFF for broadcast)
          * @param channel    Channel index to use
@@ -497,6 +516,7 @@ namespace Mesh
         QueueHandle_t _gps_queue;
         NodeDB* _nodedb;
         PacketRouter _router;
+        JapanTxHook _japan_tx_hook;
         MeshConfig _config;
         MeshState _state;
 

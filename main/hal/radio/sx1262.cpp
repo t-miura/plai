@@ -1288,6 +1288,13 @@ namespace HAL
 
     int16_t SX1262::getRSSI() const { return _last_rssi; }
 
+    int16_t SX1262::getCurrentRSSI()
+    {
+        uint8_t raw = 0;
+        readCommand(SX1262_CMD_GET_RSSI_INST, &raw, 1);
+        return -(int16_t)raw / 2;
+    }
+
     float SX1262::getSNR() const { return _last_snr; }
 
     void SX1262::setEventCallback(RadioEventCallback callback) { _event_callback = callback; }
