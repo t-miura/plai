@@ -22,6 +22,7 @@
 #include "hal/hal.h"
 #include "hal/radio/radio_interface.h"
 #include "packet_router.h"
+#include "japan_tx_hook.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/config.pb.h"
 #include "meshtastic/module_config.pb.h"
@@ -67,7 +68,7 @@ namespace Mesh
         uint8_t sf;
     };
 
-    static constexpr size_t MODEM_PRESET_COUNT = 10;
+    static constexpr size_t MODEM_PRESET_COUNT = 14;
     extern const ModemPresetInfo modem_presets[MODEM_PRESET_COUNT];
 
     inline const ModemPresetInfo* getModemPresetInfo(int index)
@@ -359,6 +360,24 @@ namespace Mesh
         PacketRouter& getRouter() { return _router; }
 
         /**
+         * @brief Get Japan regulatory TX hook
+         * @return JapanTxHook reference
+         */
+        JapanTxHook& getTxHook() { return _japan_tx_hook; }
+        const JapanTxHook& getTxHook() const { return _japan_tx_hook; }
+
+        /**
+         * @brief Get active region info pointer
+         * @return Pointer to active RegionInfo
+         */
+        const RegionInfo* getMyRegion() const { return _my_region; }
+
+        /**
+         * @brief Get singleton instance pointer
+         */
+        static MeshService* getInstance() { return _instance; }
+
+        /**
          * @brief Send our NodeInfo to a specific destination node.
          * @param dest       Destination node ID (0xFFFFFFFF for broadcast)
          * @param channel    Channel index to use
@@ -497,6 +516,7 @@ namespace Mesh
         QueueHandle_t _gps_queue;
         NodeDB* _nodedb;
         PacketRouter _router;
+        JapanTxHook _japan_tx_hook;
         MeshConfig _config;
         MeshState _state;
 
@@ -545,7 +565,7 @@ namespace Mesh
         // TX watchdog (recovery if TX_DONE never arrives)
         bool _tx_in_progress;
         uint32_t _last_tx_start_ms;
-        static constexpr uint32_t TX_WATCHDOG_TIMEOUT_MS = 4000;
+        static constexpr uint32_t TX_WATCHDOG_TIMEOUT_MS = 6000;
 
         // Last received packet SNR (for traceroute)
         int16_t _last_rx_rssi;
@@ -556,6 +576,7 @@ namespace Mesh
         void _recordAirtime(uint32_t ms, bool is_tx);
         float _getChannelUtilization() const;
         float _getAirUtilTx() const;
+        void discardTxPacket(const QueuedPacket& qp, meshtastic_Routing_Error error_code);
 
         // Airtime tracking (sliding window for channel utilization)
         static constexpr uint32_t AIRTIME_WINDOW_MS = 3600000; // 1 hour

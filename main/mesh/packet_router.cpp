@@ -432,6 +432,7 @@ namespace Mesh
     }
 
     bool PacketRouter::dequeueTx(QueuedPacket& packet) { return xQueueReceive(_tx_queue, &packet, 0) == pdTRUE; }
+    bool PacketRouter::peekTx(QueuedPacket& packet) { return xQueuePeek(_tx_queue, &packet, 0) == pdTRUE; }
 
     bool PacketRouter::hasTxPackets() const { return uxQueueMessagesWaiting(_tx_queue) > 0; }
 

@@ -278,55 +278,116 @@ namespace Mesh
     bool MeshDataStore::updateMessageStatus(
         uint32_t packet_id, uint32_t node_id, TextMessage::Status new_status, uint8_t error_code, uint8_t channel)
     {
-        std::string path = (node_id == 0xFFFFFFFF) ? getChannelFilePath(channel) : getDMFilePath(node_id);
+        auto tryUpdateInFile = [packet_id, new_status, error_code](const std::string& path) -> bool {
+            uint32_t count = 0;
+            FILE* file = openMessageFile(path.c_str(), count, "r+b");
+            if (!file || count == 0)
+            {
+                if (file)
+                    fclose(file);
+                return false;
+            }
 
-        uint32_t count = 0;
-        FILE* file = openMessageFile(path.c_str(), count, "r+b");
-        if (!file || count == 0)
+            bool found = false;
+            for (int32_t i = (int32_t)count - 1; i >= 0; i--)
+            {
+                long offset = msgRecordOffset((uint32_t)i);
+                fseek(file, offset, SEEK_SET);
+
+                uint32_t msg_id = 0;
+                if (fread(&msg_id, 4, 1, file) != 1)
+                    break;
+
+                if (msg_id == packet_id)
+                {
+                    long status_off = offset + offsetof(TextMessageRecord, status);
+                    fseek(file, status_off, SEEK_SET);
+                    uint8_t current_st = 0;
+                    if (fread(&current_st, 1, 1, file) == 1)
+                    {
+                        fseek(file, status_off, SEEK_SET);
+                        uint8_t st = static_cast<uint8_t>(new_status) | (current_st & 0x80);
+                        fwrite(&st, 1, 1, file);
+                        fwrite(&error_code, 1, 1, file);
+                        fflush(file);
+                        found = true;
+                        ESP_LOGD(TAG,
+                                 "Updated message 0x%08lX status=%d err=%d in %s",
+                                 (unsigned long)packet_id,
+                                 (int)new_status,
+                                 (int)error_code,
+                                 path.c_str());
+                    }
+                    break;
+                }
+            }
+
+            fclose(file);
+            return found;
+        };
+
+        // 1. Try primary expected path
+        std::string primary_path = (node_id == 0xFFFFFFFF) ? getChannelFilePath(channel) : getDMFilePath(node_id);
+        if (tryUpdateInFile(primary_path))
         {
-            if (file)
-                fclose(file);
-            ESP_LOGW(TAG, "Message 0x%08lX not found in %s", (unsigned long)packet_id, path.c_str());
-            return false;
+            _change_counter++;
+            return true;
         }
 
-        bool found = false;
-        for (int32_t i = (int32_t)count - 1; i >= 0; i--)
+        // 2. Fallback for channel broadcast messages or unmapped channel hash: search standard channels (ch_0..ch_7)
+        if (node_id == 0xFFFFFFFF || channel >= 8)
         {
-            long offset = msgRecordOffset((uint32_t)i);
-            fseek(file, offset, SEEK_SET);
-
-            uint32_t msg_id = 0;
-            if (fread(&msg_id, 4, 1, file) != 1)
-                break;
-
-            if (msg_id == packet_id)
+            for (uint8_t ch = 0; ch < 8; ch++)
             {
-                long status_off = offset + offsetof(TextMessageRecord, status);
-                fseek(file, status_off, SEEK_SET);
-                uint8_t st = static_cast<uint8_t>(new_status);
-                fwrite(&st, 1, 1, file);
-                fwrite(&error_code, 1, 1, file);
-                fflush(file);
-                found = true;
-                ESP_LOGD(TAG,
-                         "Updated message 0x%08lX status=%d err=%d in %s",
-                         (unsigned long)packet_id,
-                         (int)new_status,
-                         (int)error_code,
-                         path.c_str());
-                break;
+                if (ch == channel)
+                    continue;
+                if (tryUpdateInFile(getChannelFilePath(ch)))
+                {
+                    _change_counter++;
+                    return true;
+                }
             }
         }
 
-        fclose(file);
+        // 3. Fallback across all active indexed conversations
+        for (const auto& entry : _message_index)
+        {
+            std::string path = entry.is_direct ? getDMFilePath(entry.node_id) : getChannelFilePath(entry.channel);
+            if (path == primary_path)
+                continue;
+            if (tryUpdateInFile(path))
+            {
+                _change_counter++;
+                return true;
+            }
+        }
 
-        if (found)
-            _change_counter++;
-        else
-            ESP_LOGW(TAG, "Message 0x%08lX not found in %s", (unsigned long)packet_id, path.c_str());
+        // 4. Ultimate fallback: scan directory for any .msg files
+        DIR* dir = opendir(MESSAGES_DIR);
+        if (dir)
+        {
+            struct dirent* ent;
+            while ((ent = readdir(dir)) != nullptr)
+            {
+                std::string fname(ent->d_name);
+                if (fname.size() > 4 && fname.compare(fname.size() - 4, 4, ".msg") == 0)
+                {
+                    std::string full_path = std::string(MESSAGES_DIR) + "/" + fname;
+                    if (full_path == primary_path)
+                        continue;
+                    if (tryUpdateInFile(full_path))
+                    {
+                        closedir(dir);
+                        _change_counter++;
+                        return true;
+                    }
+                }
+            }
+            closedir(dir);
+        }
 
-        return found;
+        ESP_LOGW(TAG, "Message 0x%08lX not found in %s or fallbacks", (unsigned long)packet_id, primary_path.c_str());
+        return false;
     }
 
     //--------------------------------------------------------------------------

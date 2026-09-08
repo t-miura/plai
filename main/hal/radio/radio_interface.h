@@ -185,6 +185,12 @@ namespace HAL
         virtual int16_t getRSSI() const = 0;
 
         /**
+         * @brief Get current instantaneous RSSI reading from the radio
+         * @return RSSI in dBm, or 0 if unavailable
+         */
+        virtual int16_t getCurrentRSSI() { return 0; }
+
+        /**
          * @brief Get last SNR value
          * @return SNR in dB
          */

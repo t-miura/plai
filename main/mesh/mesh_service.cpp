@@ -92,9 +92,8 @@ namespace Mesh
                                          RDEF(PH_915, 915.0f, 918.0f, 100, 0, 24, true, false, false),
                                          RDEF(UNSET, 902.0f, 928.0f, 100, 0, 30, true, false, false)};
 
-    // Modem preset lookup table (indexed by meshtastic_Config_LoRaConfig_ModemPreset enum 0..9)
-    //                                                preset enum                                                       name
-    //                                                short    bw      bw_wide    cr  sf
+    // Modem preset lookup table (indexed by meshtastic_Config_LoRaConfig_ModemPreset enum 0..13)
+    //                                                preset enum                                                       name           short    bw      bw_wide    cr  sf
     const ModemPresetInfo modem_presets[MODEM_PRESET_COUNT] = {
         {meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST, "LongFast", "LongF", 250.0f, 812.5f, 5, 11},
         {meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW, "LongSlow", "LongS", 125.0f, 406.25f, 8, 12},
@@ -106,6 +105,10 @@ namespace Mesh
         {meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE, "LongMod", "LongM", 125.0f, 406.25f, 8, 11},
         {meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO, "ShortTurbo", "ShrtT", 500.0f, 1625.0f, 5, 7},
         {meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO, "LongTurbo", "LongT", 500.0f, 1625.0f, 8, 11},
+        {meshtastic_Config_LoRaConfig_ModemPreset_LITE_FAST, "LiteFast", "LiteF", 125.0f, 125.0f, 5, 9},
+        {meshtastic_Config_LoRaConfig_ModemPreset_LITE_SLOW, "LiteSlow", "LiteS", 125.0f, 125.0f, 5, 10},
+        {meshtastic_Config_LoRaConfig_ModemPreset_NARROW_FAST, "NarrowFast", "NarF", 62.5f, 62.5f, 6, 7},
+        {meshtastic_Config_LoRaConfig_ModemPreset_NARROW_SLOW, "NarrowSlow", "NarS", 62.5f, 62.5f, 6, 8},
     };
 
     // Hash function for channel name (djb2)
@@ -439,6 +442,7 @@ namespace Mesh
         memset(&_config, 0, sizeof(_config));
         _gps_queue = xQueueCreate(1, sizeof(HAL::GpsData));
         _instance = this;
+        setGlobalJapanTxHook(&_japan_tx_hook);
     }
 
     MeshService::~MeshService()
@@ -448,6 +452,10 @@ namespace Mesh
         {
             vQueueDelete(_gps_queue);
             _gps_queue = nullptr;
+        }
+        if (japanTxHook == &_japan_tx_hook)
+        {
+            setGlobalJapanTxHook(nullptr);
         }
         _instance = nullptr;
     }
@@ -709,9 +717,57 @@ namespace Mesh
         }
 
         // Check TX queue: when CSMA/CA delay has elapsed, start CAD before transmitting
-        if (_router.hasTxPackets() && _radio && !_radio->isBusy() && !_cad_in_progress && now >= _tx_not_before_ms)
+        if (_router.hasTxPackets() && _radio && !_radio->isBusy() && !_cad_in_progress &&
+            (_tx_not_before_ms == 0 || (int32_t)(now - _tx_not_before_ms) >= 0))
         {
-            startTxCAD();
+            bool can_start_cad = true;
+            if (_japan_tx_hook.isJapanRegion())
+            {
+                // Early pause check: if mandatory 50ms pause has not elapsed, defer without starting CAD
+                uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+                uint32_t last_tx_end = _japan_tx_hook.getLastTxEndTime();
+                if (last_tx_end != 0 && (now - last_tx_end < pause_ms))
+                {
+                    uint32_t deadline = last_tx_end + pause_ms;
+                    if (deadline == 0)
+                        deadline = 1;
+                    if (_tx_not_before_ms == 0 || (int32_t)(deadline - _tx_not_before_ms) > 0)
+                    {
+                        _tx_not_before_ms = deadline;
+                    }
+                    ESP_LOGI(TAG, "JP LBT: deferring for mandatory 50ms pause (remaining %ld ms)",
+                             (long)((int32_t)(deadline - now) > 0 ? (int32_t)(deadline - now) : 0));
+                    can_start_cad = false;
+                }
+                else
+                {
+                    // Early airtime check: drop oversized packets (> 4000ms airtime) immediately
+                    QueuedPacket head_pkt;
+                    if (_router.peekTx(head_pkt))
+                    {
+                        uint32_t airtime_ms = _estimateAirtimeMs(head_pkt.raw_len);
+                        if (airtime_ms > JapanTxHook::MAX_TX_DURATION_MS)
+                        {
+                            _router.dequeueTx(head_pkt);
+                            uint32_t pkt_id = 0;
+                            if (head_pkt.raw_len >= sizeof(PacketHeader))
+                            {
+                                PacketHeader hdr;
+                                memcpy(&hdr, head_pkt.raw_data, sizeof(hdr));
+                                pkt_id = hdr.id;
+                            }
+                            ESP_LOGW(TAG, "JP: packet 0x%08lX airtime %lu ms exceeds ARIB STD-T108 4s limit (max %lu ms), dropping",
+                                     (unsigned long)pkt_id, (unsigned long)airtime_ms, (unsigned long)JapanTxHook::MAX_TX_DURATION_MS);
+                            discardTxPacket(head_pkt, meshtastic_Routing_Error_TOO_LARGE);
+                            can_start_cad = false;
+                        }
+                    }
+                }
+            }
+            if (can_start_cad)
+            {
+                startTxCAD();
+            }
         }
 
         // Periodic node info broadcast (every 60 seconds), or forced immediately
@@ -802,7 +858,18 @@ namespace Mesh
     void MeshService::setTxDelay()
     {
         uint32_t now = millis();
-        _tx_not_before_ms = now + getTxDelayMsec();
+        uint32_t delay_deadline = now + getTxDelayMsec();
+        if (delay_deadline == 0)
+            delay_deadline = 1;
+        // Do not shorten an existing active future deadline (e.g. JP pause or exponential backoff)
+        if (_tx_not_before_ms == 0 || (int32_t)(now - _tx_not_before_ms) >= 0)
+        {
+            _tx_not_before_ms = delay_deadline;
+        }
+        else if ((int32_t)(delay_deadline - _tx_not_before_ms) > 0)
+        {
+            _tx_not_before_ms = delay_deadline;
+        }
     }
 
     void MeshService::startTxCAD()
@@ -811,7 +878,7 @@ namespace Mesh
         {
             _cad_in_progress = true;
             _last_cad_start_ms = millis();
-            ESP_LOGD(TAG, "CAD started before TX");
+            ESP_LOGI(TAG, "CAD started before TX");
         }
         else
         {
@@ -822,11 +889,35 @@ namespace Mesh
 
     void MeshService::recoverRadio()
     {
+        bool was_transmitting = _tx_in_progress;
         _tx_in_progress = false;
         _cad_in_progress = false;
         _last_tx_or_rx_activity_ms = millis();
         _last_cad_start_ms = 0;
         _last_busy_high_ms = 0;
+
+        if (was_transmitting)
+        {
+            uint32_t tx_now = millis();
+            if (_last_tx_start_ms > 0 && (int32_t)(tx_now - _last_tx_start_ms) > 0)
+            {
+                _recordAirtime(tx_now - _last_tx_start_ms, true);
+            }
+            _japan_tx_hook.postTransmit(_radio, nullptr);
+            setTxDelay();
+            uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+            if (pause_ms > 0)
+            {
+                uint32_t pause_deadline = tx_now + pause_ms;
+                if (pause_deadline == 0)
+                    pause_deadline = 1;
+                if (_tx_not_before_ms == 0 || (int32_t)(pause_deadline - _tx_not_before_ms) > 0)
+                {
+                    _tx_not_before_ms = pause_deadline;
+                }
+            }
+        }
+        _last_tx_start_ms = 0;
 
         if (_radio)
         {
@@ -1577,6 +1668,63 @@ namespace Mesh
         return (pct > 100.0f) ? 100.0f : pct;
     }
 
+    void MeshService::discardTxPacket(const QueuedPacket& qp, meshtastic_Routing_Error error_code)
+    {
+        uint32_t pkt_id = 0;
+        uint32_t dest_id = 0;
+        uint8_t channel = 0;
+
+        if (qp.raw_len >= sizeof(PacketHeader))
+        {
+            PacketHeader hdr;
+            memcpy(&hdr, qp.raw_data, sizeof(hdr));
+            pkt_id = hdr.id;
+            dest_id = hdr.to;
+            channel = hdr.channel;
+        }
+
+        if (pkt_id != 0)
+        {
+            auto it = _pending_acks.find(pkt_id);
+            if (it != _pending_acks.end())
+            {
+                dest_id = it->second.dest_node_id;
+                channel = it->second.channel;
+                _pending_acks.erase(it);
+            }
+            else if (dest_id == 0xFFFFFFFF && _nodedb)
+            {
+                // Resolve on-air channel hash to channel index (0..7)
+                for (int i = 0; i < 8; i++)
+                {
+                    meshtastic_Channel* ch = _nodedb->getChannel(i);
+                    if (!ch || !ch->has_settings)
+                        continue;
+                    uint8_t ch_key[32] = {};
+                    size_t ch_key_len = 0;
+                    bool ch_no_crypto = false;
+                    if (!expandChannelPsk(ch->settings, ch_key, ch_key_len, ch_no_crypto))
+                        continue;
+                    uint8_t ch_hash = 0;
+                    computeChannelHashFromSettings(ch->settings, _config, ch_key, ch_key_len, ch_hash);
+                    if (channel == ch_hash)
+                    {
+                        channel = ch->index;
+                        break;
+                    }
+                }
+            }
+
+            MeshDataStore::getInstance().updateMessageStatus(
+                pkt_id, dest_id, TextMessage::Status::FAILED, (uint8_t)error_code, channel);
+            ESP_LOGW(TAG, "Discarded TX packet 0x%08lX (dest=0x%08lX, ch=%u), error=%d, status set to FAILED",
+                     (unsigned long)pkt_id, (unsigned long)dest_id, (unsigned)channel, (int)error_code);
+        }
+
+        _japan_tx_hook.packetReleased(_radio, &qp);
+        setTxDelay();
+    }
+
     void MeshService::onRadioEvent(HAL::RadioEvent event)
     {
         _last_tx_or_rx_activity_ms = millis();
@@ -1587,12 +1735,25 @@ namespace Mesh
             ESP_LOGD(TAG, "Radio TX done");
             // Record TX airtime
             uint32_t tx_now = millis();
-            if (_last_tx_start_ms > 0 && tx_now > _last_tx_start_ms)
+            if (_last_tx_start_ms > 0 && (int32_t)(tx_now - _last_tx_start_ms) > 0)
             {
                 _recordAirtime(tx_now - _last_tx_start_ms, true);
             }
+            _last_tx_start_ms = 0;
+            _japan_tx_hook.postTransmit(_radio, nullptr);
             _tx_in_progress = false;
             setTxDelay();
+            uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+            if (pause_ms > 0)
+            {
+                uint32_t pause_deadline = tx_now + pause_ms;
+                if (pause_deadline == 0)
+                    pause_deadline = 1;
+                if (_tx_not_before_ms == 0 || (int32_t)(pause_deadline - _tx_not_before_ms) > 0)
+                {
+                    _tx_not_before_ms = pause_deadline;
+                }
+            }
             // Restart receive
             _radio->startReceive(0);
             break;
@@ -1693,16 +1854,40 @@ namespace Mesh
         case HAL::RadioEvent::CAD_DONE:
         {
             _cad_in_progress = false;
-            ESP_LOGD(TAG, "CAD clear, transmitting");
-            uint32_t tx_now = millis();
+            ESP_LOGI(TAG, "CAD clear, checking pre-transmit hooks");
             QueuedPacket qp;
-            if (_router.dequeueTx(qp))
+            if (_router.peekTx(qp))
             {
-                ESP_LOGD(TAG, "Transmitting packet, %d bytes", qp.raw_len);
+                uint32_t airtime_ms = _estimateAirtimeMs(qp.raw_len);
+                uint32_t defer_ms = 0;
+                RadioTxHook::PreTxAction action = _japan_tx_hook.beforeTransmit(_radio, &qp, airtime_ms, defer_ms);
+                if (action == RadioTxHook::PRETX_DROP)
+                {
+                    _router.dequeueTx(qp);
+                    discardTxPacket(qp, meshtastic_Routing_Error_TOO_LARGE);
+                    _radio->startReceive(0);
+                    break;
+                }
+                else if (action == RadioTxHook::PRETX_DEFER)
+                {
+                    uint32_t deadline = millis() + defer_ms;
+                    if (deadline == 0)
+                        deadline = 1;
+                    if (_tx_not_before_ms == 0 || (int32_t)(deadline - _tx_not_before_ms) > 0)
+                    {
+                        _tx_not_before_ms = deadline;
+                    }
+                    _radio->startReceive(0);
+                    break;
+                }
+
+                _router.dequeueTx(qp);
+                ESP_LOGI(TAG, "Transmitting packet, %d bytes (airtime ~%lu ms)", qp.raw_len, (unsigned long)airtime_ms);
+                uint32_t transmit_start_ms = millis();
                 if (_radio->transmit(qp.raw_data, qp.raw_len))
                 {
                     _tx_in_progress = true;
-                    _last_tx_start_ms = tx_now;
+                    _last_tx_start_ms = transmit_start_ms;
 #if HAL_USE_LED
                     if (_hal->led())
                         _hal->led()->blink_once({0, 255, 0}, 50);
@@ -1712,7 +1897,7 @@ namespace Mesh
                         PacketHeader hdr;
                         memcpy(&hdr, qp.raw_data, sizeof(hdr));
                         PacketLogEntry le = {};
-                        le.timestamp_ms = tx_now;
+                        le.timestamp_ms = transmit_start_ms;
                         le.from = hdr.from;
                         le.to = hdr.to;
                         le.id = hdr.id;
@@ -1732,6 +1917,7 @@ namespace Mesh
                 else
                 {
                     ESP_LOGW(TAG, "Radio TX start failed after CAD");
+                    discardTxPacket(qp, meshtastic_Routing_Error_NO_INTERFACE);
                     _radio->startReceive(0);
                 }
             }
@@ -1745,24 +1931,76 @@ namespace Mesh
 
         case HAL::RadioEvent::CAD_DETECTED:
             _cad_in_progress = false;
-            ESP_LOGD(TAG, "CAD detected activity, backing off");
+            ESP_LOGI(TAG, "CAD detected activity, backing off");
             setTxDelay();
             _radio->startReceive(0);
             break;
 
         case HAL::RadioEvent::TX_TIMEOUT:
+        {
             ESP_LOGW(TAG, "Radio TX timeout");
+            uint32_t tx_now = millis();
+            if (_last_tx_start_ms > 0 && (int32_t)(tx_now - _last_tx_start_ms) > 0)
+            {
+                _recordAirtime(tx_now - _last_tx_start_ms, true);
+            }
+            _last_tx_start_ms = 0;
+            _japan_tx_hook.postTransmit(_radio, nullptr);
             _tx_in_progress = false;
             _cad_in_progress = false;
+            setTxDelay();
+            uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+            if (pause_ms > 0)
+            {
+                uint32_t pause_deadline = tx_now + pause_ms;
+                if (pause_deadline == 0)
+                    pause_deadline = 1;
+                if (_tx_not_before_ms == 0 || (int32_t)(pause_deadline - _tx_not_before_ms) > 0)
+                {
+                    _tx_not_before_ms = pause_deadline;
+                }
+            }
             _radio->startReceive(0);
             break;
+        }
 
         case HAL::RadioEvent::ERROR:
+        {
             ESP_LOGE(TAG, "Radio error");
-            _tx_in_progress = false;
-            _cad_in_progress = false;
+            if (_tx_in_progress)
+            {
+                uint32_t tx_now = millis();
+                if (_last_tx_start_ms > 0 && (int32_t)(tx_now - _last_tx_start_ms) > 0)
+                {
+                    _recordAirtime(tx_now - _last_tx_start_ms, true);
+                }
+                _last_tx_start_ms = 0;
+                _japan_tx_hook.postTransmit(_radio, nullptr);
+                _tx_in_progress = false;
+                _cad_in_progress = false;
+                setTxDelay();
+                uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+                if (pause_ms > 0)
+                {
+                    uint32_t pause_deadline = tx_now + pause_ms;
+                    if (pause_deadline == 0)
+                        pause_deadline = 1;
+                    if (_tx_not_before_ms == 0 || (int32_t)(pause_deadline - _tx_not_before_ms) > 0)
+                    {
+                        _tx_not_before_ms = pause_deadline;
+                    }
+                }
+            }
+            else
+            {
+                _japan_tx_hook.packetReleased(_radio, nullptr);
+                _tx_in_progress = false;
+                _cad_in_progress = false;
+                setTxDelay();
+            }
             _radio->startReceive(0);
             break;
+        }
         }
     }
 
@@ -3510,6 +3748,10 @@ namespace Mesh
                  r->freq_start,
                  r->freq_end,
                  r->power_limit);
+
+        bool is_jp = (_my_region && _my_region->code == meshtastic_Config_LoRaConfig_RegionCode_JP);
+        _japan_tx_hook.setJapanRegion(is_jp);
+        _japan_tx_hook.reset();
     }
 
     void MeshService::applyModemConfig()
@@ -3529,6 +3771,24 @@ namespace Mesh
         {
             if (loraConfig.use_preset)
             {
+                // Validate preset for JP region (ARIB STD-T108 4s airtime limit parity with official firmware PRESETS_JP)
+                if (_my_region && _my_region->code == meshtastic_Config_LoRaConfig_RegionCode_JP)
+                {
+                    if (loraConfig.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW ||
+                        loraConfig.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW ||
+                        loraConfig.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE)
+                    {
+                        ESP_LOGW(TAG,
+                                 "Preset %s invalid for JP (violates ARIB STD-T108 4s airtime limit), clamping to LongFast",
+                                 getPresetName(loraConfig.modem_preset));
+                        loraConfig.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+                        if (_hal && _hal->settings())
+                        {
+                            _hal->settings()->setString("lora", "modem_preset", "LongFast");
+                        }
+                    }
+                }
+
                 // Map modem preset to modulation parameters
                 const ModemPresetInfo* pi = getModemPresetInfo(static_cast<int>(loraConfig.modem_preset));
                 if (!pi)
@@ -4534,6 +4794,14 @@ namespace Mesh
             return meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO;
         if (name == "LongTurbo")
             return meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO;
+        if (name == "LiteFast")
+            return meshtastic_Config_LoRaConfig_ModemPreset_LITE_FAST;
+        if (name == "LiteSlow")
+            return meshtastic_Config_LoRaConfig_ModemPreset_LITE_SLOW;
+        if (name == "NarrowFast")
+            return meshtastic_Config_LoRaConfig_ModemPreset_NARROW_FAST;
+        if (name == "NarrowSlow")
+            return meshtastic_Config_LoRaConfig_ModemPreset_NARROW_SLOW;
         return meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
     }
 
@@ -4583,6 +4851,17 @@ namespace Mesh
         {
             config.lora_config.modem_preset = modemPresetFromName(modem_preset_name);
             config.lora_config.use_preset = true;
+            if (config.lora_config.region == meshtastic_Config_LoRaConfig_RegionCode_JP)
+            {
+                if (config.lora_config.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW ||
+                    config.lora_config.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW ||
+                    config.lora_config.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE)
+                {
+                    ESP_LOGW(TAG, "Clamping JP preset %s to LongFast in NVS", modem_preset_name.c_str());
+                    config.lora_config.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+                    _settings->setString("lora", "modem_preset", "LongFast");
+                }
+            }
         }
         config.lora_config.tx_power = _settings->getNumber("lora", "tx_power");
         config.lora_config.override_duty_cycle = _settings->getBool("lora", "duty_ovr");

@@ -1161,8 +1161,8 @@ namespace HAL
         // Set antenna for TX
         setAntenna(true);
 
-        // Start transmission (3 second timeout)
-        setTx(3000);
+        // Start transmission (5 second hardware timeout to accommodate up to 4000ms airtime)
+        setTx(5000);
 
         _mode = RadioMode::TX;
         return true;
@@ -1247,7 +1247,9 @@ namespace HAL
 
         // Configure CAD parameters
         // Symbol num, detect peak, detect min, exit mode, timeout
-        uint8_t cad_params[7] = {0x03, 22, 10, 0x00, 0x00, 0x00, 0x00};
+        // Semtech recommended detPeak: SF + 13 (e.g. 24 for SF11, 25 for SF12)
+        uint8_t det_peak = (_config.spreading_factor >= 7) ? (uint8_t)(_config.spreading_factor + 13) : 22;
+        uint8_t cad_params[7] = {0x03, det_peak, 10, 0x00, 0x00, 0x00, 0x00};
         writeCommand(SX1262_CMD_SET_CAD_PARAMS, cad_params, 7);
         waitBusy();
 
@@ -1287,6 +1289,13 @@ namespace HAL
     bool SX1262::isBusy() const { return gpio_get_level((gpio_num_t)_pins.busy) || _mode == RadioMode::TX; }
 
     int16_t SX1262::getRSSI() const { return _last_rssi; }
+
+    int16_t SX1262::getCurrentRSSI()
+    {
+        uint8_t raw = 0;
+        readCommand(SX1262_CMD_GET_RSSI_INST, &raw, 1);
+        return -(int16_t)raw / 2;
+    }
 
     float SX1262::getSNR() const { return _last_snr; }
 

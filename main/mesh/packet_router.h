@@ -115,6 +115,7 @@ namespace Mesh
                           uint8_t port_hint = 0);
 
         bool dequeueTx(QueuedPacket& packet);
+        bool peekTx(QueuedPacket& packet);
         bool hasTxPackets() const;
         size_t getTxQueueSize() const;
 

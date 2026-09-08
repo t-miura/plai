@@ -711,6 +711,39 @@ namespace UTILS
                 // Save the setting if value changed
                 if (value_changed)
                 {
+                    if (group.nvs_namespace == "lora")
+                    {
+                        if (strcmp(item.key, "modem_preset") == 0)
+                        {
+                            std::string current_region = hal->settings()->getString("lora", "region");
+                            if (current_region == "JP")
+                            {
+                                if (item.value == "LongSlow" || item.value == "VeryLongSlow" || item.value == "LongModerate")
+                                {
+                                    UTILS::UI::show_error_dialog(hal, "JP Regulation", "Illegal in JP: clamped to LongFast");
+                                    item.value = "LongFast";
+                                }
+                            }
+                        }
+                        else if (strcmp(item.key, "region") == 0 && item.value == "JP")
+                        {
+                            std::string current_preset = hal->settings()->getString("lora", "modem_preset");
+                            if (current_preset == "LongSlow" || current_preset == "VeryLongSlow" || current_preset == "LongModerate")
+                            {
+                                UTILS::UI::show_error_dialog(hal, "JP Regulation", "Illegal in JP: clamped to LongFast");
+                                hal->settings()->setString("lora", "modem_preset", "LongFast");
+                                for (auto& it : group.items)
+                                {
+                                    if (strcmp(it.key, "modem_preset") == 0)
+                                    {
+                                        it.value = "LongFast";
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     save_setting(hal, group, item);
 
                     // if namespace == wifi - reinit wifi
