@@ -3754,6 +3754,10 @@ namespace Mesh
                                  "Preset %s invalid for JP (violates ARIB STD-T108 4s airtime limit), clamping to LongFast",
                                  getPresetName(loraConfig.modem_preset));
                         loraConfig.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+                        if (_hal && _hal->settings())
+                        {
+                            _hal->settings()->setString("lora", "modem_preset", "LongFast");
+                        }
                     }
                 }
 
@@ -4819,6 +4823,17 @@ namespace Mesh
         {
             config.lora_config.modem_preset = modemPresetFromName(modem_preset_name);
             config.lora_config.use_preset = true;
+            if (config.lora_config.region == meshtastic_Config_LoRaConfig_RegionCode_JP)
+            {
+                if (config.lora_config.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW ||
+                    config.lora_config.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW ||
+                    config.lora_config.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE)
+                {
+                    ESP_LOGW(TAG, "Clamping JP preset %s to LongFast in NVS", modem_preset_name.c_str());
+                    config.lora_config.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+                    _settings->setString("lora", "modem_preset", "LongFast");
+                }
+            }
         }
         config.lora_config.tx_power = _settings->getNumber("lora", "tx_power");
         config.lora_config.override_duty_cycle = _settings->getBool("lora", "duty_ovr");
