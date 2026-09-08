@@ -576,6 +576,7 @@ namespace Mesh
         void _recordAirtime(uint32_t ms, bool is_tx);
         float _getChannelUtilization() const;
         float _getAirUtilTx() const;
+        void discardTxPacket(const QueuedPacket& qp, meshtastic_Routing_Error error_code);
 
         // Airtime tracking (sliding window for channel utilization)
         static constexpr uint32_t AIRTIME_WINDOW_MS = 3600000; // 1 hour

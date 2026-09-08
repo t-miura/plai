@@ -735,7 +735,7 @@ namespace Mesh
                     {
                         _tx_not_before_ms = deadline;
                     }
-                    ESP_LOGD(TAG, "JP LBT: deferring for mandatory 50ms pause (remaining %ld ms)",
+                    ESP_LOGI(TAG, "JP LBT: deferring for mandatory 50ms pause (remaining %ld ms)",
                              (long)((int32_t)(deadline - now) > 0 ? (int32_t)(deadline - now) : 0));
                     can_start_cad = false;
                 }
@@ -749,10 +749,16 @@ namespace Mesh
                         if (airtime_ms > JapanTxHook::MAX_TX_DURATION_MS)
                         {
                             _router.dequeueTx(head_pkt);
-                            ESP_LOGW(TAG, "JP: packet airtime %lu ms exceeds ARIB STD-T108 4s limit (max %lu ms), dropping",
-                                     (unsigned long)airtime_ms, (unsigned long)JapanTxHook::MAX_TX_DURATION_MS);
-                            _japan_tx_hook.packetReleased(_radio, &head_pkt);
-                            setTxDelay();
+                            uint32_t pkt_id = 0;
+                            if (head_pkt.raw_len >= sizeof(PacketHeader))
+                            {
+                                PacketHeader hdr;
+                                memcpy(&hdr, head_pkt.raw_data, sizeof(hdr));
+                                pkt_id = hdr.id;
+                            }
+                            ESP_LOGW(TAG, "JP: packet 0x%08lX airtime %lu ms exceeds ARIB STD-T108 4s limit (max %lu ms), dropping",
+                                     (unsigned long)pkt_id, (unsigned long)airtime_ms, (unsigned long)JapanTxHook::MAX_TX_DURATION_MS);
+                            discardTxPacket(head_pkt, meshtastic_Routing_Error_TOO_LARGE);
                             can_start_cad = false;
                         }
                     }
@@ -872,7 +878,7 @@ namespace Mesh
         {
             _cad_in_progress = true;
             _last_cad_start_ms = millis();
-            ESP_LOGD(TAG, "CAD started before TX");
+            ESP_LOGI(TAG, "CAD started before TX");
         }
         else
         {
@@ -1662,6 +1668,34 @@ namespace Mesh
         return (pct > 100.0f) ? 100.0f : pct;
     }
 
+    void MeshService::discardTxPacket(const QueuedPacket& qp, meshtastic_Routing_Error error_code)
+    {
+        uint32_t pkt_id = 0;
+        uint32_t dest_id = 0;
+        uint8_t channel = 0;
+
+        if (qp.raw_len >= sizeof(PacketHeader))
+        {
+            PacketHeader hdr;
+            memcpy(&hdr, qp.raw_data, sizeof(hdr));
+            pkt_id = hdr.id;
+            dest_id = hdr.to;
+            channel = hdr.channel;
+        }
+
+        if (pkt_id != 0)
+        {
+            _pending_acks.erase(pkt_id);
+            MeshDataStore::getInstance().updateMessageStatus(
+                pkt_id, dest_id, TextMessage::Status::FAILED, (uint8_t)error_code, channel);
+            ESP_LOGW(TAG, "Discarded TX packet 0x%08lX (dest=0x%08lX, ch=%u), error=%d, status set to FAILED",
+                     (unsigned long)pkt_id, (unsigned long)dest_id, (unsigned)channel, (int)error_code);
+        }
+
+        _japan_tx_hook.packetReleased(_radio, &qp);
+        setTxDelay();
+    }
+
     void MeshService::onRadioEvent(HAL::RadioEvent event)
     {
         _last_tx_or_rx_activity_ms = millis();
@@ -1791,7 +1825,7 @@ namespace Mesh
         case HAL::RadioEvent::CAD_DONE:
         {
             _cad_in_progress = false;
-            ESP_LOGD(TAG, "CAD clear, transmitting");
+            ESP_LOGI(TAG, "CAD clear, checking pre-transmit hooks");
             QueuedPacket qp;
             if (_router.peekTx(qp))
             {
@@ -1801,8 +1835,7 @@ namespace Mesh
                 if (action == RadioTxHook::PRETX_DROP)
                 {
                     _router.dequeueTx(qp);
-                    _japan_tx_hook.packetReleased(_radio, &qp);
-                    setTxDelay();
+                    discardTxPacket(qp, meshtastic_Routing_Error_TOO_LARGE);
                     _radio->startReceive(0);
                     break;
                 }
@@ -1820,7 +1853,7 @@ namespace Mesh
                 }
 
                 _router.dequeueTx(qp);
-                ESP_LOGD(TAG, "Transmitting packet, %d bytes", qp.raw_len);
+                ESP_LOGI(TAG, "Transmitting packet, %d bytes (airtime ~%lu ms)", qp.raw_len, (unsigned long)airtime_ms);
                 uint32_t transmit_start_ms = millis();
                 if (_radio->transmit(qp.raw_data, qp.raw_len))
                 {
@@ -1870,7 +1903,7 @@ namespace Mesh
 
         case HAL::RadioEvent::CAD_DETECTED:
             _cad_in_progress = false;
-            ESP_LOGD(TAG, "CAD detected activity, backing off");
+            ESP_LOGI(TAG, "CAD detected activity, backing off");
             setTxDelay();
             _radio->startReceive(0);
             break;
@@ -3710,6 +3743,20 @@ namespace Mesh
         {
             if (loraConfig.use_preset)
             {
+                // Validate preset for JP region (ARIB STD-T108 4s airtime limit parity with official firmware PRESETS_JP)
+                if (_my_region && _my_region->code == meshtastic_Config_LoRaConfig_RegionCode_JP)
+                {
+                    if (loraConfig.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW ||
+                        loraConfig.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW ||
+                        loraConfig.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE)
+                    {
+                        ESP_LOGW(TAG,
+                                 "Preset %s invalid for JP (violates ARIB STD-T108 4s airtime limit), clamping to LongFast",
+                                 getPresetName(loraConfig.modem_preset));
+                        loraConfig.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+                    }
+                }
+
                 // Map modem preset to modulation parameters
                 const ModemPresetInfo* pi = getModemPresetInfo(static_cast<int>(loraConfig.modem_preset));
                 if (!pi)

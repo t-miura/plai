@@ -110,7 +110,7 @@ namespace Mesh
             int16_t rssi = iface->getCurrentRSSI();
             if (isValidRssi(rssi) && rssi >= CARRIER_SENSE_THRESHOLD_DBM)
             {
-                ESP_LOGD(TAG, "JP LBT: carrier sensed during 5ms window (RSSI %d dBm >= %d dBm)",
+                ESP_LOGI(TAG, "JP LBT: carrier sensed during 5ms window (RSSI %d dBm >= %d dBm)",
                          rssi, CARRIER_SENSE_THRESHOLD_DBM);
                 return false;
             }
@@ -120,7 +120,7 @@ namespace Mesh
         int16_t finalRssi = iface->getCurrentRSSI();
         if (isValidRssi(finalRssi) && finalRssi >= CARRIER_SENSE_THRESHOLD_DBM)
         {
-            ESP_LOGD(TAG, "JP LBT: carrier sensed at end of 5ms window (RSSI %d dBm >= %d dBm)",
+            ESP_LOGI(TAG, "JP LBT: carrier sensed at end of 5ms window (RSSI %d dBm >= %d dBm)",
                      finalRssi, CARRIER_SENSE_THRESHOLD_DBM);
             return false;
         }
@@ -153,7 +153,7 @@ namespace Mesh
             defer_ms = pauseMs - (now - _lastTxEndTime);
             if (defer_ms == 0)
                 defer_ms = 1;
-            ESP_LOGD(TAG, "JP LBT: deferring packet for mandatory 50ms pause (remaining %lu ms)",
+            ESP_LOGI(TAG, "JP LBT: deferring packet for mandatory 50ms pause (remaining %lu ms)",
                      (unsigned long)defer_ms);
             return PRETX_DEFER;
         }
@@ -165,13 +165,13 @@ namespace Mesh
             defer_ms = computeBackoffMs(_busyCount);
             if (defer_ms == 0)
                 defer_ms = 1;
-            ESP_LOGD(TAG, "JP LBT: channel busy (attempt %lu), backing off %lu ms",
+            ESP_LOGI(TAG, "JP LBT: channel busy (attempt %lu), backing off %lu ms",
                      (unsigned long)_busyCount, (unsigned long)defer_ms);
             return PRETX_DEFER;
         }
 
         _busyCount = 0;
-        ESP_LOGD(TAG, "JP LBT: carrier sense clear (5ms window), transmit permitted");
+        ESP_LOGI(TAG, "JP LBT: carrier sense clear (5ms window), transmit permitted");
         return PRETX_SEND;
     }
 
