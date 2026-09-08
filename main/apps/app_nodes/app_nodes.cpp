@@ -4750,6 +4750,7 @@ void AppNodes::_send_message(const std::string& text)
 
         Mesh::MeshDataStore::getInstance().addMessage(msg);
         _refresh_dm_line_counts();
+        _data.update_list = true;
 
         // Auto-scroll to bottom after sending
         {

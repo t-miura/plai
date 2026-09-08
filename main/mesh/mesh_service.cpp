@@ -1685,7 +1685,36 @@ namespace Mesh
 
         if (pkt_id != 0)
         {
-            _pending_acks.erase(pkt_id);
+            auto it = _pending_acks.find(pkt_id);
+            if (it != _pending_acks.end())
+            {
+                dest_id = it->second.dest_node_id;
+                channel = it->second.channel;
+                _pending_acks.erase(it);
+            }
+            else if (dest_id == 0xFFFFFFFF && _nodedb)
+            {
+                // Resolve on-air channel hash to channel index (0..7)
+                for (int i = 0; i < 8; i++)
+                {
+                    meshtastic_Channel* ch = _nodedb->getChannel(i);
+                    if (!ch || !ch->has_settings)
+                        continue;
+                    uint8_t ch_key[32] = {};
+                    size_t ch_key_len = 0;
+                    bool ch_no_crypto = false;
+                    if (!expandChannelPsk(ch->settings, ch_key, ch_key_len, ch_no_crypto))
+                        continue;
+                    uint8_t ch_hash = 0;
+                    computeChannelHashFromSettings(ch->settings, _config, ch_key, ch_key_len, ch_hash);
+                    if (channel == ch_hash)
+                    {
+                        channel = ch->index;
+                        break;
+                    }
+                }
+            }
+
             MeshDataStore::getInstance().updateMessageStatus(
                 pkt_id, dest_id, TextMessage::Status::FAILED, (uint8_t)error_code, channel);
             ESP_LOGW(TAG, "Discarded TX packet 0x%08lX (dest=0x%08lX, ch=%u), error=%d, status set to FAILED",
@@ -1888,8 +1917,7 @@ namespace Mesh
                 else
                 {
                     ESP_LOGW(TAG, "Radio TX start failed after CAD");
-                    _japan_tx_hook.packetReleased(_radio, &qp);
-                    setTxDelay();
+                    discardTxPacket(qp, meshtastic_Routing_Error_NO_INTERFACE);
                     _radio->startReceive(0);
                 }
             }
