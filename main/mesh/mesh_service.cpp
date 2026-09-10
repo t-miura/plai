@@ -1838,9 +1838,8 @@ namespace Mesh
             QueuedPacket qp;
             if (_router.peekTx(qp))
             {
-                uint32_t airtime_ms = _estimateAirtimeMs(qp.raw_len);
                 uint32_t defer_ms = 0;
-                RadioTxHook::PreTxAction action = _japan_tx_hook.beforeTransmit(_radio, &qp, airtime_ms, defer_ms);
+                RadioTxHook::PreTxAction action = _japan_tx_hook.beforeTransmit(_radio, &qp, defer_ms);
                 if (action == RadioTxHook::PRETX_DEFER)
                 {
                     uint32_t deadline = millis() + defer_ms;
@@ -1855,7 +1854,7 @@ namespace Mesh
                 }
 
                 _router.dequeueTx(qp);
-                ESP_LOGI(TAG, "Transmitting packet, %d bytes (airtime ~%lu ms)", qp.raw_len, (unsigned long)airtime_ms);
+                ESP_LOGI(TAG, "Transmitting packet, %d bytes", qp.raw_len);
                 uint32_t transmit_start_ms = millis();
                 if (_radio->transmit(qp.raw_data, qp.raw_len))
                 {

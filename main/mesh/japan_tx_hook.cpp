@@ -130,7 +130,6 @@ namespace Mesh
 
     RadioTxHook::PreTxAction JapanTxHook::beforeTransmit(HAL::RadioInterface* iface,
                                                          const QueuedPacket* p,
-                                                         uint32_t estimated_airtime_ms,
                                                          uint32_t& defer_ms)
     {
         defer_ms = 0;

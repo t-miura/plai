@@ -36,13 +36,11 @@ namespace Mesh
          * @brief Called before transmission to check regulatory and channel policies.
          * @param iface Pointer to radio driver
          * @param p Pointer to the packet at head of TX queue (or nullptr)
-         * @param estimated_airtime_ms Estimated airtime in milliseconds
          * @param defer_ms Output parameter for required defer/backoff delay in ms if PRETX_DEFER
          * @return PRETX_SEND, PRETX_DEFER, or PRETX_DROP
          */
         virtual PreTxAction beforeTransmit(HAL::RadioInterface* iface,
                                            const QueuedPacket* p,
-                                           uint32_t estimated_airtime_ms,
                                            uint32_t& defer_ms)
         {
             defer_ms = 0;
