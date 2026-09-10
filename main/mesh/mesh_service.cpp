@@ -741,27 +741,7 @@ namespace Mesh
                 }
                 else
                 {
-                    // Early airtime check: drop oversized packets (> 4000ms airtime) immediately
-                    QueuedPacket head_pkt;
-                    if (_router.peekTx(head_pkt))
-                    {
-                        uint32_t airtime_ms = _estimateAirtimeMs(head_pkt.raw_len);
-                        if (airtime_ms > JapanTxHook::MAX_TX_DURATION_MS)
-                        {
-                            _router.dequeueTx(head_pkt);
-                            uint32_t pkt_id = 0;
-                            if (head_pkt.raw_len >= sizeof(PacketHeader))
-                            {
-                                PacketHeader hdr;
-                                memcpy(&hdr, head_pkt.raw_data, sizeof(hdr));
-                                pkt_id = hdr.id;
-                            }
-                            ESP_LOGW(TAG, "JP: packet 0x%08lX airtime %lu ms exceeds ARIB STD-T108 4s limit (max %lu ms), dropping",
-                                     (unsigned long)pkt_id, (unsigned long)airtime_ms, (unsigned long)JapanTxHook::MAX_TX_DURATION_MS);
-                            discardTxPacket(head_pkt, meshtastic_Routing_Error_TOO_LARGE);
-                            can_start_cad = false;
-                        }
-                    }
+                    can_start_cad = true; // pause elapsed, proceed
                 }
             }
             if (can_start_cad)
@@ -1861,14 +1841,7 @@ namespace Mesh
                 uint32_t airtime_ms = _estimateAirtimeMs(qp.raw_len);
                 uint32_t defer_ms = 0;
                 RadioTxHook::PreTxAction action = _japan_tx_hook.beforeTransmit(_radio, &qp, airtime_ms, defer_ms);
-                if (action == RadioTxHook::PRETX_DROP)
-                {
-                    _router.dequeueTx(qp);
-                    discardTxPacket(qp, meshtastic_Routing_Error_TOO_LARGE);
-                    _radio->startReceive(0);
-                    break;
-                }
-                else if (action == RadioTxHook::PRETX_DEFER)
+                if (action == RadioTxHook::PRETX_DEFER)
                 {
                     uint32_t deadline = millis() + defer_ms;
                     if (deadline == 0)
@@ -3828,6 +3801,23 @@ namespace Mesh
                 }
             }
 
+            // JP region: validate that max payload (255 bytes) fits within ARIB STD-T108 4s limit.
+            // Enforced at config-change time (both preset and custom paths) so the TX path needs
+            // no per-packet airtime math.
+            if (_my_region && _my_region->code == meshtastic_Config_LoRaConfig_RegionCode_JP &&
+                _estimateAirtimeMs(255) > JapanTxHook::MAX_TX_DURATION_MS)
+            {
+                ESP_LOGW(TAG,
+                         "JP: %s (SF%d BW%.0fkHz) would exceed ARIB STD-T108 4s airtime limit, clamping to LongFast",
+                         loraConfig.use_preset ? "preset" : "custom config", _sf, _bw);
+                loraConfig.use_preset = true;
+                loraConfig.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+                if (_hal && _hal->settings())
+                    _hal->settings()->setString("lora", "modem_preset", "LongFast");
+                _jp_config_was_clamped = true; // UI reads this via consumeJPClampedFlag()
+                continue; // Restart validation loop with the safe preset
+            }
+
             // Validate bandwidth against region limits
             if (regionSpanKHz < _bw)
             {
@@ -4851,17 +4841,8 @@ namespace Mesh
         {
             config.lora_config.modem_preset = modemPresetFromName(modem_preset_name);
             config.lora_config.use_preset = true;
-            if (config.lora_config.region == meshtastic_Config_LoRaConfig_RegionCode_JP)
-            {
-                if (config.lora_config.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW ||
-                    config.lora_config.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW ||
-                    config.lora_config.modem_preset == meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE)
-                {
-                    ESP_LOGW(TAG, "Clamping JP preset %s to LongFast in NVS", modem_preset_name.c_str());
-                    config.lora_config.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
-                    _settings->setString("lora", "modem_preset", "LongFast");
-                }
-            }
+            // JP airtime validation is performed in applyModemConfig() for both preset and
+            // custom configs; no early filtering needed here.
         }
         config.lora_config.tx_power = _settings->getNumber("lora", "tx_power");
         config.lora_config.override_duty_cycle = _settings->getBool("lora", "duty_ovr");

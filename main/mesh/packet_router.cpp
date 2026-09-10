@@ -490,7 +490,8 @@ namespace Mesh
 
         if (xQueueSend(_rx_queue, &qp, pdMS_TO_TICKS(100)) != pdTRUE)
         {
-            ESP_LOGW(TAG, "RX queue full, dropping packet");
+            ESP_LOGE(TAG, "RX queue full, dropping packet from 0x%08lX id=0x%08lX",
+                     (unsigned long)header.from, (unsigned long)header.id);
             return false;
         }
 
@@ -526,8 +527,8 @@ namespace Mesh
                     continue;
                 }
 
-                ESP_LOGD(TAG,
-                         "Dropping duplicate packet 0x%08lX from 0x%08lX",
+                ESP_LOGI(TAG,
+                         "Dropping duplicate packet 0x%08lX from 0x%08lX (seen recently)",
                          (unsigned long)qp.packet.id,
                          (unsigned long)qp.packet.from);
                 continue;

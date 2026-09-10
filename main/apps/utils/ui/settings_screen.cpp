@@ -10,6 +10,7 @@
 #include "common_define.h"
 #include "draw_helper.h"
 #include "key_repeat.h"
+#include "mesh/mesh_service.h"
 #include <cstring>
 
 // True if a C string pointer is null or empty (replacement for std::string::empty()
@@ -745,6 +746,14 @@ namespace UTILS
                     }
 
                     save_setting(hal, group, item);
+
+                    // If the mesh service clamped a JP-illegal LoRa config during applyModemConfig(),
+                    // show the error dialog now (covers both presets and custom configs).
+                    if (group.nvs_namespace == "lora" && hal->mesh() &&
+                        hal->mesh()->consumeJPClampedFlag())
+                    {
+                        UTILS::UI::show_error_dialog(hal, "JP Regulation", "Illegal in JP: clamped to LongFast");
+                    }
 
                     // if namespace == wifi - reinit wifi
 #if HAL_USE_WIFI

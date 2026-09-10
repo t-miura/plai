@@ -137,14 +137,6 @@ namespace Mesh
         if (!isJapan() || !p)
             return PRETX_SEND;
 
-        // R3: Maximum Single-Burst Airtime Limit (ARIB STD-T108 4-Second Limit)
-        if (estimated_airtime_ms > MAX_TX_DURATION_MS)
-        {
-            ESP_LOGW(TAG, "JP: packet airtime %lu ms exceeds ARIB STD-T108 4s limit (max %lu ms), dropping",
-                     (unsigned long)estimated_airtime_ms, (unsigned long)MAX_TX_DURATION_MS);
-            return PRETX_DROP;
-        }
-
         // R2: Inter-Transmission Pause Duration Enforcement (>= 50ms)
         const uint32_t pauseMs = isJapan() ? INTER_TX_PAUSE_MS : 0;
         const uint32_t now = millis();

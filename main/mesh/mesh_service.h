@@ -421,6 +421,18 @@ namespace Mesh
         void forceNodeInfoBroadcast();
 
         /**
+         * @brief Check (and clear) whether the last applyModemConfig() clamped a JP-illegal
+         *        LoRa config to LongFast.  The UI calls this once after saving a setting and
+         *        shows the error dialog if it returns true.
+         */
+        bool consumeJPClampedFlag()
+        {
+            bool v = _jp_config_was_clamped;
+            _jp_config_was_clamped = false;
+            return v;
+        }
+
+        /**
          * @brief Get node by ID
          * @param node_id Node ID
          * @param out NodeInfo to fill
@@ -517,6 +529,7 @@ namespace Mesh
         NodeDB* _nodedb;
         PacketRouter _router;
         JapanTxHook _japan_tx_hook;
+        bool _jp_config_was_clamped = false; // set by applyModemConfig(), read by UI via consumeJPClampedFlag()
         MeshConfig _config;
         MeshState _state;
 
