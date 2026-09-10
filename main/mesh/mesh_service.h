@@ -473,6 +473,7 @@ namespace Mesh
         // Configuration helpers
         void initRegion();
         void applyModemConfig();
+        void _clearCustomLoRaSettings();
         uint32_t generateNodeId();
         void applyOkToMqtt(meshtastic_Data& data) const;
 

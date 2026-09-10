@@ -3727,6 +3727,17 @@ namespace Mesh
         _japan_tx_hook.reset();
     }
 
+    void MeshService::_clearCustomLoRaSettings()
+    {
+        if (_hal && _hal->settings())
+        {
+            _hal->settings()->setNumber("lora", "bandwidth", 0);
+            _hal->settings()->setNumber("lora", "spread_factor", 0);
+            _hal->settings()->setNumber("lora", "coding_rate", 0);
+            _hal->settings()->setNumber("lora", "freq_ovr", 0);
+        }
+    }
+
     void MeshService::applyModemConfig()
     {
         if (!_radio || !_my_region)
@@ -3814,6 +3825,7 @@ namespace Mesh
                 loraConfig.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
                 if (_hal && _hal->settings())
                     _hal->settings()->setString("lora", "modem_preset", "LongFast");
+                _clearCustomLoRaSettings();
                 _jp_config_was_clamped = true; // UI reads this via consumeJPClampedFlag()
                 continue; // Restart validation loop with the safe preset
             }
