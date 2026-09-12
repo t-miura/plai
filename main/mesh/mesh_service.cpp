@@ -600,7 +600,15 @@ namespace Mesh
         // Check TX queue: when CSMA/CA delay has elapsed, start CAD before transmitting
         if (_router.hasTxPackets() && _radio && !_radio->isBusy() && !_cad_in_progress && now >= _tx_not_before_ms)
         {
-            startTxCAD();
+            if (_radio->isActivelyReceiving())
+            {
+                ESP_LOGD(TAG, "Radio actively receiving, deferring TX");
+                setTxDelay();
+            }
+            else
+            {
+                startTxCAD();
+            }
         }
 
         // Periodic node info broadcast (every 60 seconds), or forced immediately
@@ -685,7 +693,10 @@ namespace Mesh
         if (cw_size > CW_MAX)
             cw_size = CW_MAX;
         uint32_t cw_slots = 1u << cw_size; // 2^CWsize
-        return (esp_random() % cw_slots) * _slot_time_ms;
+        uint32_t slots = esp_random() % cw_slots;
+        if (slots == 0)
+            slots = 1; // Guarantee at least 1 slot backoff per CSMA/CA standard
+        return slots * _slot_time_ms;
     }
 
     void MeshService::setTxDelay()
@@ -1478,9 +1489,8 @@ namespace Mesh
 
         case HAL::RadioEvent::CAD_DETECTED:
             _cad_in_progress = false;
-            ESP_LOGD(TAG, "CAD detected activity, backing off");
+            ESP_LOGD(TAG, "CAD detected activity, backing off and receiving");
             setTxDelay();
-            _radio->startReceive(0);
             break;
 
         case HAL::RadioEvent::TX_TIMEOUT:
