@@ -129,13 +129,15 @@ static const char* TAG = "SX1262";
 #define SX1262_TCXO_3_0V 0x06
 #define SX1262_TCXO_3_3V 0x07
 
+static constexpr uint32_t CAD_RX_ACQUISITION_TIMEOUT_MS = 250;
+
 namespace HAL
 {
 
     SX1262::SX1262(const SX1262Pins& pins)
         : _pins(pins), _spi_handle(nullptr), _spi_mutex(nullptr), _mode(RadioMode::SLEEP), _state(SX1262State::UNINITIALIZED),
           _event_callback(nullptr), _irq_pending(false), _last_rssi(0), _last_snr(0.0f), _last_rx_len(0), _rx_buffer_ptr(0),
-          _initialized(false), _active_receive_start_ms(0)
+          _initialized(false), _active_receive_start_ms(0), _cad_rx_start_ms(0)
     {
         // Initialize default config
         _config.frequency_hz = 915000000; // 915 MHz
@@ -1185,6 +1187,7 @@ namespace HAL
         // Clear IRQ
         clearIrqStatus(SX1262_IRQ_ALL);
         _active_receive_start_ms = 0;
+        _cad_rx_start_ms = 0;
 
         // Re-apply RX gain (can be reset after standby)
         uint8_t rx_gain = _config.rx_boosted_gain ? 0x96 : 0x94;
@@ -1279,6 +1282,7 @@ namespace HAL
 
         clearIrqStatus(SX1262_IRQ_ALL);
         _active_receive_start_ms = 0;
+        _cad_rx_start_ms = 0;
         setAntenna(false);
         setCad();
 
@@ -1319,6 +1323,7 @@ namespace HAL
         if (_mode != RadioMode::RX)
         {
             _active_receive_start_ms = 0;
+            _cad_rx_start_ms = 0;
             return false;
         }
 
@@ -1326,10 +1331,13 @@ namespace HAL
         bool detected = (irq & (SX1262_IRQ_HEADER_VALID | SX1262_IRQ_PREAMBLE_DETECTED)) != 0;
         if (detected)
         {
+            _cad_rx_start_ms = 0; // Hardware has latched signal; acquisition window satisfied
             uint32_t now = millis();
             if (_active_receive_start_ms == 0)
             {
                 _active_receive_start_ms = now;
+                ESP_LOGI(TAG, "Radio actively receiving: %s (IRQ: 0x%04X)",
+                         (irq & SX1262_IRQ_HEADER_VALID) ? "header valid" : "preamble detected", irq);
             }
             else if (now - _active_receive_start_ms > 4000)
             {
@@ -1338,13 +1346,22 @@ namespace HAL
                 _active_receive_start_ms = 0;
                 return false;
             }
-        }
-        else
-        {
-            _active_receive_start_ms = 0;
+            return true;
         }
 
-        return detected;
+        // If hardware has not yet asserted PREAMBLE/HEADER, protect the CAD_RX acquisition window
+        if (_cad_rx_start_ms != 0)
+        {
+            uint32_t now = millis();
+            if (now - _cad_rx_start_ms <= CAD_RX_ACQUISITION_TIMEOUT_MS)
+            {
+                return true;
+            }
+            _cad_rx_start_ms = 0; // Window expired without detection (false CAD trigger)
+        }
+
+        _active_receive_start_ms = 0;
+        return false;
     }
 
     int16_t SX1262::getRSSI() const { return _last_rssi; }
@@ -1396,6 +1413,8 @@ namespace HAL
         }
         else if (irq & SX1262_IRQ_RX_DONE)
         {
+            _active_receive_start_ms = 0;
+            _cad_rx_start_ms = 0;
             if (irq & SX1262_IRQ_CRC_ERR)
             {
                 ESP_LOGW(TAG, "RX CRC error");
@@ -1410,6 +1429,8 @@ namespace HAL
         }
         else if (irq & SX1262_IRQ_TIMEOUT)
         {
+            _active_receive_start_ms = 0;
+            _cad_rx_start_ms = 0;
             if (_state == SX1262State::RX)
             {
                 ESP_LOGD(TAG, "RX timeout");
@@ -1428,10 +1449,11 @@ namespace HAL
         {
             if (irq & SX1262_IRQ_CAD_DETECTED)
             {
-                ESP_LOGD(TAG, "CAD detected activity, entering RX");
+                ESP_LOGI(TAG, "CAD detected activity, switching to RX");
                 event = RadioEvent::CAD_DETECTED;
                 _mode = RadioMode::RX;
                 _state = SX1262State::RX;
+                _cad_rx_start_ms = millis();
             }
             else
             {
@@ -1439,6 +1461,8 @@ namespace HAL
                 event = RadioEvent::CAD_DONE;
                 _mode = RadioMode::STANDBY;
                 _state = SX1262State::STANDBY_RC;
+                _active_receive_start_ms = 0;
+                _cad_rx_start_ms = 0;
                 setStandby(true);
             }
             has_event = true;

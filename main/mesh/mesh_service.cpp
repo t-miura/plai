@@ -840,7 +840,10 @@ namespace Mesh
         if (cw_size > CW_MAX)
             cw_size = CW_MAX;
         uint32_t cw_slots = 1u << cw_size; // 2^CWsize
-        return (esp_random() % cw_slots) * _slot_time_ms;
+        uint32_t slots = esp_random() % cw_slots;
+        if (slots == 0)
+            slots = 1; // Guarantee at least 1 slot backoff per CSMA/CA standard
+        return slots * _slot_time_ms;
     }
 
     void MeshService::setTxDelay()
