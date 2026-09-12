@@ -179,6 +179,12 @@ namespace HAL
         virtual bool isBusy() const = 0;
 
         /**
+         * @brief Check if radio is actively receiving a packet (preamble or header detected)
+         * @return true if actively receiving
+         */
+        virtual bool isActivelyReceiving() const { return false; }
+
+        /**
          * @brief Get last RSSI value
          * @return RSSI in dBm
          */
