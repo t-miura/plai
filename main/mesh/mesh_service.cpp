@@ -720,33 +720,41 @@ namespace Mesh
         if (_router.hasTxPackets() && _radio && !_radio->isBusy() && !_cad_in_progress &&
             (_tx_not_before_ms == 0 || (int32_t)(now - _tx_not_before_ms) >= 0))
         {
-            bool can_start_cad = true;
-            if (_japan_tx_hook.isJapanRegion())
+            if (_radio->isActivelyReceiving())
             {
-                // Early pause check: if mandatory 50ms pause has not elapsed, defer without starting CAD
-                uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
-                uint32_t last_tx_end = _japan_tx_hook.getLastTxEndTime();
-                if (last_tx_end != 0 && (now - last_tx_end < pause_ms))
-                {
-                    uint32_t deadline = last_tx_end + pause_ms;
-                    if (deadline == 0)
-                        deadline = 1;
-                    if (_tx_not_before_ms == 0 || (int32_t)(deadline - _tx_not_before_ms) > 0)
-                    {
-                        _tx_not_before_ms = deadline;
-                    }
-                    ESP_LOGI(TAG, "JP LBT: deferring for mandatory 50ms pause (remaining %ld ms)",
-                             (long)((int32_t)(deadline - now) > 0 ? (int32_t)(deadline - now) : 0));
-                    can_start_cad = false;
-                }
-                else
-                {
-                    can_start_cad = true; // pause elapsed, proceed
-                }
+                ESP_LOGD(TAG, "Radio actively receiving, deferring TX");
+                setTxDelay();
             }
-            if (can_start_cad)
+            else
             {
-                startTxCAD();
+                bool can_start_cad = true;
+                if (_japan_tx_hook.isJapanRegion())
+                {
+                    // Early pause check: if mandatory 50ms pause has not elapsed, defer without starting CAD
+                    uint32_t pause_ms = _japan_tx_hook.getTxPauseDurationMs();
+                    uint32_t last_tx_end = _japan_tx_hook.getLastTxEndTime();
+                    if (last_tx_end != 0 && (now - last_tx_end < pause_ms))
+                    {
+                        uint32_t deadline = last_tx_end + pause_ms;
+                        if (deadline == 0)
+                            deadline = 1;
+                        if (_tx_not_before_ms == 0 || (int32_t)(deadline - _tx_not_before_ms) > 0)
+                        {
+                            _tx_not_before_ms = deadline;
+                        }
+                        ESP_LOGI(TAG, "JP LBT: deferring for mandatory 50ms pause (remaining %ld ms)",
+                                 (long)((int32_t)(deadline - now) > 0 ? (int32_t)(deadline - now) : 0));
+                        can_start_cad = false;
+                    }
+                    else
+                    {
+                        can_start_cad = true; // pause elapsed, proceed
+                    }
+                }
+                if (can_start_cad)
+                {
+                    startTxCAD();
+                }
             }
         }
 
@@ -832,7 +840,10 @@ namespace Mesh
         if (cw_size > CW_MAX)
             cw_size = CW_MAX;
         uint32_t cw_slots = 1u << cw_size; // 2^CWsize
-        return (esp_random() % cw_slots) * _slot_time_ms;
+        uint32_t slots = esp_random() % cw_slots;
+        if (slots == 0)
+            slots = 1; // Guarantee at least 1 slot backoff per CSMA/CA standard
+        return slots * _slot_time_ms;
     }
 
     void MeshService::setTxDelay()
@@ -1903,9 +1914,8 @@ namespace Mesh
 
         case HAL::RadioEvent::CAD_DETECTED:
             _cad_in_progress = false;
-            ESP_LOGI(TAG, "CAD detected activity, backing off");
+            ESP_LOGI(TAG, "CAD detected activity, backing off and receiving");
             setTxDelay();
-            _radio->startReceive(0);
             break;
 
         case HAL::RadioEvent::TX_TIMEOUT:

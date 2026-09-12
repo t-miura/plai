@@ -129,13 +129,15 @@ static const char* TAG = "SX1262";
 #define SX1262_TCXO_3_0V 0x06
 #define SX1262_TCXO_3_3V 0x07
 
+static constexpr uint32_t CAD_RX_ACQUISITION_TIMEOUT_MS = 250;
+
 namespace HAL
 {
 
     SX1262::SX1262(const SX1262Pins& pins)
         : _pins(pins), _spi_handle(nullptr), _spi_mutex(nullptr), _mode(RadioMode::SLEEP), _state(SX1262State::UNINITIALIZED),
           _event_callback(nullptr), _irq_pending(false), _last_rssi(0), _last_snr(0.0f), _last_rx_len(0), _rx_buffer_ptr(0),
-          _initialized(false)
+          _initialized(false), _active_receive_start_ms(0), _cad_rx_start_ms(0)
     {
         // Initialize default config
         _config.frequency_hz = 915000000; // 915 MHz
@@ -309,8 +311,10 @@ namespace HAL
             return false;
         }
 
-        // Configure IRQ: route all to DIO1
-        setDioIrqParams(SX1262_IRQ_ALL, SX1262_IRQ_ALL, 0, 0);
+        // Configure IRQ: enable all status flags in chip register, but route only completion/actionable events to DIO1 pin
+        uint16_t dio1_mask = SX1262_IRQ_TX_DONE | SX1262_IRQ_RX_DONE | SX1262_IRQ_CAD_DONE | SX1262_IRQ_CAD_DETECTED |
+                             SX1262_IRQ_TIMEOUT | SX1262_IRQ_CRC_ERR | SX1262_IRQ_HEADER_ERR;
+        setDioIrqParams(SX1262_IRQ_ALL, dio1_mask, 0, 0);
         waitBusy();
 
         // Clear any pending IRQ
@@ -1182,6 +1186,8 @@ namespace HAL
 
         // Clear IRQ
         clearIrqStatus(SX1262_IRQ_ALL);
+        _active_receive_start_ms = 0;
+        _cad_rx_start_ms = 0;
 
         // Re-apply RX gain (can be reset after standby)
         uint8_t rx_gain = _config.rx_boosted_gain ? 0x96 : 0x94;
@@ -1195,6 +1201,7 @@ namespace HAL
         setRx(timeout_ms);
 
         _mode = RadioMode::RX;
+        _state = SX1262State::RX;
         return true;
     }
 
@@ -1245,19 +1252,42 @@ namespace HAL
         setStandby(true);
         waitBusy();
 
-        // Configure CAD parameters
-        // Symbol num, detect peak, detect min, exit mode, timeout
-        // Semtech recommended detPeak: SF + 13 (e.g. 24 for SF11, 25 for SF12)
+        // Ensure packet params and RX gain are configured for reception in case CAD detects activity (CAD_RX)
+        setPacketParams(_config.preamble_length, _config.implicit_header, 255, _config.crc_enabled, _config.iq_inverted);
+        waitBusy();
+
+        uint8_t rx_gain = _config.rx_boosted_gain ? 0x96 : 0x94;
+        writeRegister(0x08AC, &rx_gain, 1);
+        waitBusy();
+
+        // Configure CAD parameters:
+        // Symbol num: 0x01 (2 symbols, as recommended by Semtech AN1200.48 and official Meshtastic NUM_SYM_CAD)
+        // Detect peak: SF + 13 (Semtech recommended)
+        // Detect min: 10
+        // Exit mode: 0x01 (CAD_RX: automatically enter RX mode without standby on activity detection)
+        // Timeout: 5000ms (320000 = 0x04E200 in 15.625us units)
         uint8_t det_peak = (_config.spreading_factor >= 7) ? (uint8_t)(_config.spreading_factor + 13) : 22;
-        uint8_t cad_params[7] = {0x03, det_peak, 10, 0x00, 0x00, 0x00, 0x00};
+        uint32_t timeout_val = (uint32_t)(5000000.0f / 15.625f);
+        uint8_t cad_params[7] = {
+            0x01,
+            det_peak,
+            10,
+            0x01,
+            (uint8_t)((timeout_val >> 16) & 0xFF),
+            (uint8_t)((timeout_val >> 8) & 0xFF),
+            (uint8_t)(timeout_val & 0xFF)
+        };
         writeCommand(SX1262_CMD_SET_CAD_PARAMS, cad_params, 7);
         waitBusy();
 
         clearIrqStatus(SX1262_IRQ_ALL);
+        _active_receive_start_ms = 0;
+        _cad_rx_start_ms = 0;
         setAntenna(false);
         setCad();
 
         _mode = RadioMode::CAD;
+        _state = SX1262State::CAD;
         return true;
     }
 
@@ -1287,6 +1317,52 @@ namespace HAL
     RadioMode SX1262::getMode() const { return _mode; }
 
     bool SX1262::isBusy() const { return gpio_get_level((gpio_num_t)_pins.busy) || _mode == RadioMode::TX; }
+
+    bool SX1262::isActivelyReceiving() const
+    {
+        if (_mode != RadioMode::RX)
+        {
+            _active_receive_start_ms = 0;
+            _cad_rx_start_ms = 0;
+            return false;
+        }
+
+        uint16_t irq = const_cast<SX1262*>(this)->getIrqStatus();
+        bool detected = (irq & (SX1262_IRQ_HEADER_VALID | SX1262_IRQ_PREAMBLE_DETECTED)) != 0;
+        if (detected)
+        {
+            _cad_rx_start_ms = 0; // Hardware has latched signal; acquisition window satisfied
+            uint32_t now = millis();
+            if (_active_receive_start_ms == 0)
+            {
+                _active_receive_start_ms = now;
+                ESP_LOGI(TAG, "Radio actively receiving: %s (IRQ: 0x%04X)",
+                         (irq & SX1262_IRQ_HEADER_VALID) ? "header valid" : "preamble detected", irq);
+            }
+            else if (now - _active_receive_start_ms > 4000)
+            {
+                // Stale detection timeout (e.g. false preamble/header from noise without RX_DONE)
+                const_cast<SX1262*>(this)->clearIrqStatus(SX1262_IRQ_HEADER_VALID | SX1262_IRQ_PREAMBLE_DETECTED);
+                _active_receive_start_ms = 0;
+                return false;
+            }
+            return true;
+        }
+
+        // If hardware has not yet asserted PREAMBLE/HEADER, protect the CAD_RX acquisition window
+        if (_cad_rx_start_ms != 0)
+        {
+            uint32_t now = millis();
+            if (now - _cad_rx_start_ms <= CAD_RX_ACQUISITION_TIMEOUT_MS)
+            {
+                return true;
+            }
+            _cad_rx_start_ms = 0; // Window expired without detection (false CAD trigger)
+        }
+
+        _active_receive_start_ms = 0;
+        return false;
+    }
 
     int16_t SX1262::getRSSI() const { return _last_rssi; }
 
@@ -1337,6 +1413,8 @@ namespace HAL
         }
         else if (irq & SX1262_IRQ_RX_DONE)
         {
+            _active_receive_start_ms = 0;
+            _cad_rx_start_ms = 0;
             if (irq & SX1262_IRQ_CRC_ERR)
             {
                 ESP_LOGW(TAG, "RX CRC error");
@@ -1351,6 +1429,8 @@ namespace HAL
         }
         else if (irq & SX1262_IRQ_TIMEOUT)
         {
+            _active_receive_start_ms = 0;
+            _cad_rx_start_ms = 0;
             if (_state == SX1262State::RX)
             {
                 ESP_LOGD(TAG, "RX timeout");
@@ -1369,17 +1449,23 @@ namespace HAL
         {
             if (irq & SX1262_IRQ_CAD_DETECTED)
             {
-                ESP_LOGD(TAG, "CAD detected activity");
+                ESP_LOGI(TAG, "CAD detected activity, switching to RX");
                 event = RadioEvent::CAD_DETECTED;
+                _mode = RadioMode::RX;
+                _state = SX1262State::RX;
+                _cad_rx_start_ms = millis();
             }
             else
             {
                 ESP_LOGD(TAG, "CAD done, channel free");
                 event = RadioEvent::CAD_DONE;
+                _mode = RadioMode::STANDBY;
+                _state = SX1262State::STANDBY_RC;
+                _active_receive_start_ms = 0;
+                _cad_rx_start_ms = 0;
+                setStandby(true);
             }
             has_event = true;
-            _mode = RadioMode::STANDBY;
-            setStandby(true);
         }
 
         if (has_event && _event_callback)

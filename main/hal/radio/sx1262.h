@@ -80,6 +80,7 @@ namespace HAL
         bool setMode(RadioMode mode) override;
         RadioMode getMode() const override;
         bool isBusy() const override;
+        bool isActivelyReceiving() const override;
         int16_t getRSSI() const override;
         int16_t getCurrentRSSI() override;
         float getSNR() const override;
@@ -177,6 +178,8 @@ namespace HAL
         uint8_t _last_rx_len;
         uint8_t _rx_buffer_ptr;
         bool _initialized;
+        mutable uint32_t _active_receive_start_ms;
+        mutable uint32_t _cad_rx_start_ms;
         uint8_t _spi_tx_buf[260];
         uint8_t _spi_rx_buf[260];
     };
