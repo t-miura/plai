@@ -82,13 +82,11 @@ bool SDCard::mount(bool format_if_mount_failed)
     slot_config.gpio_cs = PIN_NUM_CS;
     slot_config.host_id = (spi_host_device_t)host.slot;
 
-    // Set SD card SPI frequency to 10MHz for better stability across all devices on single shared SPI bus.
-    // WARNING: Do not increase to 20MHz on Cardputer ADV with Cap LoRa-1262,
-    // as the SPI bus where SD card lives is shared with SX1262 which can run only up to 18MHz,
-    // there are potential risks when SD card is running at higher frequency than this, even SX1262 is not selected.
-    // While erformance boost from 10MHz to 20MHz might be nice on SD card access,
-    // but to ensure system-wide stability, we will use 10MHz for SD card too.
-    host.max_freq_khz = 10000;
+    # Maximum bus clock frequency for 1-bit SPI mode SD card is 25MHz.
+    # While due to how ESP-IDF SD SPI sets the SPI bus clock as:
+    # "only integer fractions of 40MHz clock can be used.", so we will go with nearest maximum: 20MHz.
+    # ref: https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/sdspi_host.html#_CPPv423sdspi_host_set_card_clk18sdspi_dev_handle_t8uint32_t
+    host.max_freq_khz = 20000;
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {.format_if_mount_failed = format_if_mount_failed,
                                                      .max_files = 5,
